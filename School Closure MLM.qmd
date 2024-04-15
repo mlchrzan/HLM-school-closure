@@ -1,0 +1,149 @@
+---
+title: "School Closure MLM"
+author: "mlc"
+format: html
+editor: visual
+---
+
+# Setup
+
+```{r libraries, message=FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(performance)
+library(lattice)
+library(here)
+library(janitor) #for clean_names()
+library(DescTools) #for Winsorize()
+library(GGally) #for correlation matrix
+library(corrplot) #for correlation matrix
+```
+
+```{r load-data, message=FALSE}
+closure <- read_csv("school_district_theil_index.csv")
+district_states <- read_csv("district_state_info.csv", skip = 6)
+district_states <- clean_names(district_states)
+
+district_states <- district_states |> 
+  rename(agency_id = starts_with("agency_id"), 
+         dist_state_name = starts_with('state_name'),
+         dist_state_abbr = starts_with('state_abbr')) |> 
+  mutate(agency_id = as.numeric(agency_id), 
+         dist_state_abbr = as.factor(dist_state_abbr), 
+         dist_state_name = as.factor(dist_state_name))
+
+closure <- left_join(closure, 
+                     district_states, 
+                     by = join_by(agency_id))
+rm(district_states)
+
+closure <- closure |> 
+  dplyr::select(agency_id, 
+                school_id, 
+                year, 
+                school_name, 
+                dist_state_name, 
+                dist_state_abbr, 
+                everything())
+```
+
+```{r initial-set-up}
+closure <- closure |> 
+  mutate(school_level = if_else(school_level == 5, 4, school_level)) 
+
+#Recreate location type from dummy variables, including NA's where appropriate
+location_known <- closure |> 
+  pivot_longer(cols = c(urban, suburban, rural), 
+               names_to = "location_type") |> 
+  mutate(location_type = if_else(value == 0, NA, location_type)) |>
+  filter(value == 1) |>
+  dplyr::select(-value)
+  
+rows_without_location <- closure |> 
+  pivot_longer(cols = c(urban, suburban, rural), 
+               names_to = "location_type") |> 
+  mutate(location_type = if_else(value == 0, NA, location_type)) |>
+  distinct() |> 
+  filter(value == 0) |>
+  dplyr::select(-value) 
+
+location_unknown <- anti_join(rows_without_location, location_known, 
+                              by = join_by(school_id, year))
+
+closure <- bind_rows(location_known, location_unknown) 
+rm(location_known, location_unknown, rows_without_location)
+
+
+#Remove persisting rows for schools after they close
+closure <- closure |> 
+  #Find year school closed
+  group_by(school_id, year) |> 
+  filter(closed == 1) |> 
+  summarize(year_closed = year, 
+            .groups = 'keep') |> 
+  ungroup() |> 
+  dplyr::select(-year) |> 
+  #Filter to only include years less than or equal to that year for each school
+  right_join(closure) |> 
+  mutate(year_closed = if_else(is.na(year_closed), Year(Today()), year_closed)) |> 
+  filter(year <= year_closed) |> 
+  dplyr::select(year_closed, agency_id, school_id, school_name, year, closed, everything()) |> 
+  dplyr::select(-year_closed, -agency_name)
+
+
+#Create factors
+closure <- closure |> 
+  mutate(school_id = factor(school_id, levels = unique(school_id)), 
+         agency_id = factor(agency_id, levels = unique(agency_id)), 
+         #closed = factor(closed, levels = unique(closed)),
+         school_level = factor(school_level, levels = unique(school_level)), 
+         charter = factor(charter, levels = unique(charter)), 
+         magnet = factor(magnet, levels = unique(magnet)), 
+         title1 = factor(title1, levels = unique(title1)), 
+         location_type = factor(location_type, levels = unique(location_type)))
+```
+
+```{r cleaning-variables}
+#Correct Location Types
+
+#Create Mode function to find the most common value that is not NA
+Mode <- function(x, na.rm = FALSE) {
+  if(na.rm){
+    x = x[!is.na(x)]
+  }
+
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+closure <- closure |> 
+  group_by(school_id) |> 
+  mutate(most_common_location = Mode(location_type, na.rm = TRUE)) |> 
+  mutate(location_type = most_common_location) |> 
+  ungroup() |> 
+  dplyr::select(-most_common_location)
+
+  
+
+#Correct Percentages/Ratios
+  #maxval's chosen based on distributions
+closure$st_ratio <- Winsorize(closure$st_ratio, 
+                              minval = 1,
+                              maxval = 51, 
+                              na.rm = TRUE)
+
+closure$dist_st_ratio <- Winsorize(closure$dist_st_ratio, 
+                                   minval = 1,
+                                   maxval = 33,
+                                   na.rm = TRUE)
+
+  #all percentages higher than 100 capped to 100
+closure <- closure |>  
+  mutate(across((starts_with("dist_pct")), ~if_else(. > 1, 1, .)), 
+         pct_frpl = if_else(pct_frpl > 1, 1, pct_frpl))
+
+
+
+#Title1 Categories (Can I get a clean yes/no)
+```
