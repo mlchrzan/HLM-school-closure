@@ -94,9 +94,10 @@ closure <- closure |>
 
 #Create factors
 closure <- closure |> 
-  mutate(school_id = factor(school_id, levels = unique(school_id)), 
+  mutate(year = factor(year, levels = unique(year)),
+         school_id = factor(school_id, levels = unique(school_id)), 
          agency_id = factor(agency_id, levels = unique(agency_id)), 
-         #closed = factor(closed, levels = unique(closed)),
+         closed = factor(closed, levels = unique(closed)),
          school_level = factor(school_level, levels = unique(school_level)), 
          charter = factor(charter, levels = unique(charter)), 
          magnet = factor(magnet, levels = unique(magnet)), 
@@ -146,4 +147,92 @@ closure <- closure |>
 
 
 #Title1 Categories (Can I get a clean yes/no)
+```
+
+```{r creating-variables}
+#Enrollment Trends
+closure <- closure |> 
+  group_by(school_id) |> 
+  mutate(one_yr_enroll_schl = tot_students - dplyr::lag(tot_students),
+         one_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students),
+         five_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 5),
+         five_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 5), 
+         three_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 3), 
+         three_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 3)) |>
+  ungroup()
+
+
+#What percent of of District Enrollment is at a given school? 
+closure <- closure |> 
+  mutate(pct_dist_enroll = tot_students/dist_tot_students)
+
+#Is the school more diverse than the district? 
+closure <- closure |> 
+  mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
+```
+
+# 5 Hypothesis
+
+```{r mean-center}
+#pct_dist_enroll is acting up after mean centering
+#STOPS when I group on school_id, but not sure if that's right. Waiting for Sanne's feedback
+
+vars <- closure  |>  
+  select(where(is.numeric))  |>  
+  names()
+vars <- setNames(vars, str_c(vars, "_c")) 
+#vars
+
+closure <- closure |> 
+  group_by(school_id) |>
+  mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) |> 
+  ungroup()
+
+# closure <- closure |> 
+#   group_by(school_id) |> 
+#   mutate(across(where(is.numeric) & !year, ~ . - mean(., na.rm = TRUE))) |> 
+#   ungroup()
+```
+
+```{r check-mean-center}
+closure |>
+  select(ends_with("_c")) |>
+  summary()
+```
+
+## Step 1
+
+```{r}
+m1 <- glm(closed ~ 1 ,
+         data = closure, 
+         family = 'binomial')
+summary(m1)
+```
+
+```{r}
+logLik(m1) #deviance
+```
+
+## Step 2
+
+```{r random-intercept}
+m2 <- glmer(closed ~ (1 | agency_id),  
+            data = closure, 
+            family = binomial)
+
+summary(m2)
+```
+
+```{r icc}
+icc(m2)
+```
+
+```{r anova-m2-m1}
+anova(m2,m1)
+```
+
+## Step 3: A model with a level 1 predictor
+
+```{r}
+
 ```
