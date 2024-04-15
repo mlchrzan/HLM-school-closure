@@ -145,6 +145,21 @@ closure <- closure |>
          pct_frpl = if_else(pct_frpl > 1, 1, pct_frpl))
 
 
+#Fix districts indicating no students enrollled
+closure <- closure |> 
+  group_by(agency_id, year) |> 
+  mutate(dist_tot_students = if_else(dist_tot_students == 0, 
+                                     sum(tot_students), 
+                                     dist_tot_students), 
+         dist_tot_students = if_else(dist_tot_students == 0, 
+                                    NA, 
+                                    dist_tot_students), 
+         tot_students = if_else(tot_students == 0, 
+                                    NA, 
+                                    tot_students)) |> 
+  ungroup() 
+
+
 
 #Title1 Categories (Can I get a clean yes/no)
 ```
@@ -171,6 +186,22 @@ closure <- closure |>
   mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
 ```
 
+```{r cleaning-dist-pct-enroll}
+#Fixing dist_tot_student totals for schools and years where the pct was over 100 (dist count wasn't 0, but was still too low, single digit counts)
+
+closure <- closure |> 
+  group_by(agency_id, year) |> 
+  mutate(dist_tot_students = if_else(pct_dist_enroll > 100, 
+                                     sum(tot_students), 
+                                     dist_tot_students), 
+         pct_dist_enroll = if_else(pct_dist_enroll > 100, 
+                                   tot_students/dist_tot_students, 
+                                   pct_dist_enroll)) |> 
+  ungroup() 
+
+summary(closure$pct_dist_enroll)
+```
+
 ```{r filter-CA}
 closure_CA <- closure |> 
   filter(dist_state_abbr == "CA")
@@ -188,10 +219,8 @@ vars <- closure_CA  |>
 vars <- setNames(vars, str_c(vars, "_c")) 
 #vars
 
-closure_CA <- closure_CA |> 
-  group_by(school_id) |>
-  mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) |> 
-  ungroup()
+closure_CA <- closure_CA |>
+  mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
 
 # closure <- closure |> 
 #   group_by(school_id) |> 
