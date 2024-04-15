@@ -171,19 +171,24 @@ closure <- closure |>
   mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
 ```
 
+```{r filter-CA}
+closure_CA <- closure |> 
+  filter(dist_state_abbr == "CA")
+```
+
 # 5 Hypothesis
 
 ```{r mean-center}
 #pct_dist_enroll is acting up after mean centering
 #STOPS when I group on school_id, but not sure if that's right. Waiting for Sanne's feedback
 
-vars <- closure  |>  
+vars <- closure_CA  |>  
   select(where(is.numeric))  |>  
   names()
 vars <- setNames(vars, str_c(vars, "_c")) 
 #vars
 
-closure <- closure |> 
+closure_CA <- closure_CA |> 
   group_by(school_id) |>
   mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) |> 
   ungroup()
@@ -195,7 +200,7 @@ closure <- closure |>
 ```
 
 ```{r check-mean-center}
-closure |>
+closure_CA |>
   select(ends_with("_c")) |>
   summary()
 ```
@@ -204,7 +209,7 @@ closure |>
 
 ```{r}
 m1 <- glm(closed ~ 1 ,
-         data = closure, 
+         data = closure_CA, 
          family = 'binomial')
 summary(m1)
 ```
@@ -217,7 +222,7 @@ logLik(m1) #deviance
 
 ```{r random-intercept}
 m2 <- glmer(closed ~ (1 | agency_id),  
-            data = closure, 
+            data = closure_CA, 
             family = binomial)
 
 summary(m2)
