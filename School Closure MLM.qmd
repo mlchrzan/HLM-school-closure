@@ -18,6 +18,8 @@ library(janitor) #for clean_names()
 library(DescTools) #for Winsorize()
 library(GGally) #for correlation matrix
 library(corrplot) #for correlation matrix
+library(plotly)
+library(naniar)
 ```
 
 ```{r load-data, message=FALSE}
@@ -50,7 +52,7 @@ closure <- closure |>
 
 ```{r initial-set-up}
 closure <- closure |> 
-  mutate(school_level = if_else(school_level == 5, 4, school_level)) 
+  mutate(school_level = if_else(school_level == 5 | school_level ==6, 4, school_level)) 
 
 #Recreate location type from dummy variables, including NA's where appropriate
 location_known <- closure |> 
@@ -184,6 +186,12 @@ closure <- closure |>
 #Is the school more diverse than the district? 
 closure <- closure |> 
   mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
+
+#Calculate the number of schools a district has within a given year
+closure <- closure |> 
+  group_by(agency_id, year) |> 
+  mutate(dist_num_schools = n_distinct(school_id)) |> 
+  ungroup()
 ```
 
 ```{r cleaning-dist-pct-enroll}
@@ -197,35 +205,56 @@ closure <- closure |>
          pct_dist_enroll = if_else(pct_dist_enroll > 100, 
                                    tot_students/dist_tot_students, 
                                    pct_dist_enroll)) |> 
-  ungroup() 
+  ungroup()  
 
 summary(closure$pct_dist_enroll)
 ```
 
 ```{r filter-CA}
 closure_CA <- closure |> 
-  filter(dist_state_abbr == "CA")
+  filter(dist_state_abbr == "CA") 
+```
+
+```{r data-setup}
+closure_CA <- closure_CA |> 
+  select(agency_id, school_id, school_level,
+         year, closed, dist_state_abbr, 
+         pct_dist_enroll, 
+         school_level, 
+         st_ratio, 
+         school_more_diverse,
+         three_yr_enroll_dist, 
+         dist_st_ratio, 
+         dist_per_pupil_expend, 
+         dist_num_schools) |> 
+  mutate(across(where(is.numeric), scale),
+         across(where(is.numeric), as.vector)) |> 
+  na.omit()
+
+#SCHOOL LEVEL
+#pct_dist_enroll
+#st_ratio
+#school_level
+#school_more_diverse ???
+
+#DISTRICT LEVEL
+#five_yr_enroll_dist 
+#dist_st_ratio
+#dist_per_pupil_expend
+#dist_num_schools
 ```
 
 # 5 Hypothesis
 
 ```{r mean-center}
-#pct_dist_enroll is acting up after mean centering
-#STOPS when I group on school_id, but not sure if that's right. Waiting for Sanne's feedback
-
 vars <- closure_CA  |>  
   select(where(is.numeric))  |>  
-  names()
+  names() 
 vars <- setNames(vars, str_c(vars, "_c")) 
 #vars
 
 closure_CA <- closure_CA |>
   mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
-
-# closure <- closure |> 
-#   group_by(school_id) |> 
-#   mutate(across(where(is.numeric) & !year, ~ . - mean(., na.rm = TRUE))) |> 
-#   ungroup()
 ```
 
 ```{r check-mean-center}
@@ -252,7 +281,7 @@ logLik(m1) #deviance
 ```{r random-intercept}
 m2 <- glmer(closed ~ (1 | agency_id),  
             data = closure_CA, 
-            family = binomial)
+            family = 'binomial') 
 
 summary(m2)
 ```
@@ -262,11 +291,63 @@ icc(m2)
 ```
 
 ```{r anova-m2-m1}
+(2* logLik(m2)) - (2* logLik(m1))
+
 anova(m2,m1)
 ```
 
 ## Step 3: A model with a level 1 predictor
 
-```{r}
+```{r variables}
+#SCHOOL LEVEL
+#pct_dist_enroll
+#st_ratio
+#school_level
+#school_more_diverse ???
 
+#DISTRICT LEVEL
+#dist_five_year_enroll 
+#dist_st_ratio
+#dist_per_pupil_expend
+#num_schools
+```
+
+```{r level-1-predictors}
+m3 <- glmer(closed ~ pct_dist_enroll + st_ratio + school_level + (1 | agency_id),  
+            data = closure_CA, 
+            family = "binomial") 
+
+summary(m3)
+```
+
+```{r model-comparison-2}
+anova(m3, m2)
+#(2* logLik(m2)) - (2* logLik(m1))
+#(2* logLik(m3)) - (2* logLik(m2))
+
+#Not nested models! There was some listwise deletion from one of the covariates missing variables
+
+#Take out all the missing values after selecting the variables, do some naniar analysis on the missing data 
+
+# logLik(m1)
+# logLik(m2)
+# logLik(m3)
+```
+
+## Step 4 a model with level 2 predictors
+
+```{r level-2-predictors}
+#DISTRICT LEVEL
+#dist_five_year_enroll 
+#dist_st_ratio
+#dist_per_pupil_expend
+#num_schools
+
+m4 <- glmer(closed ~ pct_di5st_enroll + st_ratio + school_level + 
+              three_yr_enroll_dist + dist_st_ratio + dist_per_pupil_expend + 
+              dist_num_schools + (1 | agency_id),  
+            data = closure_CA, 
+            family = "binomial") 
+
+summary(m4)
 ```
