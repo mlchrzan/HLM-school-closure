@@ -235,10 +235,10 @@ closure_CA <- closure_CA |>
 #pct_dist_enroll
 #st_ratio
 #school_level
-#school_more_diverse ???
+#school_more_diverse ???, maybe we try this with schl_pct_blk and dist_pct_blk at level 2
+#five_yr_enroll_schl 
 
 #DISTRICT LEVEL
-#five_yr_enroll_dist 
 #dist_st_ratio
 #dist_per_pupil_expend
 #dist_num_schools
@@ -343,9 +343,9 @@ anova(m3, m2)
 #dist_per_pupil_expend
 #num_schools
 
-m4 <- glmer(closed ~ pct_di5st_enroll + st_ratio + school_level + 
-              three_yr_enroll_dist + dist_st_ratio + dist_per_pupil_expend + 
-              dist_num_schools + (1 | agency_id),  
+m4 <- glmer(closed ~ pct_di5st_enroll + st_ratio + school_level 
+            + three_yr_enroll_dist + dist_st_ratio + dist_per_pupil_expend 
+            + dist_num_schools + (1 | agency_id),  
             data = closure_CA, 
             family = "binomial") 
 
