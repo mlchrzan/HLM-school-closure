@@ -96,9 +96,9 @@ closure <- closure |>
 
 #Create factors
 closure <- closure |> 
-  mutate(year = factor(year, levels = unique(year)),
-         school_id = factor(school_id, levels = unique(school_id)), 
+  mutate(school_id = factor(school_id, levels = unique(school_id)), 
          agency_id = factor(agency_id, levels = unique(agency_id)), 
+         #year = factor(year, levels = unique(year)),
          closed = factor(closed, levels = unique(closed)),
          school_level = factor(school_level, levels = unique(school_level)), 
          charter = factor(charter, levels = unique(charter)), 
@@ -215,10 +215,11 @@ closure_CA <- closure |>
   filter(dist_state_abbr == "CA") 
 ```
 
-```{r data-setup}
+```{r standardize}
 closure_CA <- closure_CA |> 
   select(agency_id, school_id, school_level,
          year, closed, dist_state_abbr, 
+         location_type,
          pct_dist_enroll, 
          school_level, 
          st_ratio, 
@@ -244,23 +245,103 @@ closure_CA <- closure_CA |>
 #dist_num_schools
 ```
 
+```{r cleaning-year-factor}
+closure_CA <- closure_CA |> 
+  filter(year != 2000 & year != 2001 & year != 2002)
+
+closure_CA <- closure_CA |> 
+  mutate(year = factor(year, levels = c(2003:2017)))
+```
+
+# Check Data
+
+```{r check-level}
+closure_CA |>
+  group_by(agency_id) |>
+  summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE)))
+
+#All numerical variables are time-varying
+```
+
+```{r data-characteristics}
+#Number of Schools
+n_distinct(closure_CA$school_id)
+
+#Number of Schools Over Time
+closure_CA |> 
+  group_by(year) |> 
+  summarize(num_schools = n()) |> 
+  ungroup()
+
+#Number of Districts
+n_distinct(closure_CA$agency_id)
+
+#Number of Districts Over Time
+closure_CA |> 
+  group_by(year) |> 
+  summarize(num_dists = n_distinct(agency_id)) |> 
+  ungroup()
+
+
+```
+
 # 5 Hypothesis
 
-```{r mean-center}
-vars <- closure_CA  |>  
-  select(where(is.numeric))  |>  
-  names() 
-vars <- setNames(vars, str_c(vars, "_c")) 
-#vars
+## Examine Linearity and Outliers
 
-closure_CA <- closure_CA |>
-  mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
+```{r check-linearity-plot-attitudes-over-time}
+closure_CA |> 
+  group_by(year) |> 
+  summarize(num_closed = sum(as.numeric(closed == 1))) |> 
+  ungroup() |> 
+  ggplot(aes(x = as.numeric(year),
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r test-time-options}
+mlfit <- lm(closed == 1 ~ as.numeric(year), 
+            data = closure_CA)
+mqfit <- lm(closed == 1 ~ poly(as.numeric(year), 2), # quadratic effect
+            data = closure_CA)
+mdfit <- lm(closed == 1 ~ closure_CA$year, 
+            data = closure_CA) # time dummies
+
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
+```
+
+```{r test-time-models}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit) 
+```
+
+We'll use the quadratic effect fit
+
+\>\>\> ARE WE SUPPOSED TO TEST EACH VARIABLE??
+
+# OLD AND WRONG
+
+## 5 Hypothesis
+
+```{r mean-center}
+# vars <- closure_CA  |>  
+#   select(where(is.numeric))  |>  
+#   names() 
+# vars <- setNames(vars, str_c(vars, "_c")) 
+# #vars
+# 
+# closure_CA <- closure_CA |>
+#   mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
 ```
 
 ```{r check-mean-center}
-closure_CA |>
-  select(ends_with("_c")) |>
-  summary()
+# closure_CA |>
+#   select(ends_with("_c")) |>
+#   summary()
 ```
 
 ## Step 1
