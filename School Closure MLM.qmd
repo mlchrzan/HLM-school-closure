@@ -20,6 +20,7 @@ library(GGally) #for correlation matrix
 library(corrplot) #for correlation matrix
 library(plotly)
 library(naniar)
+library(caret) #for up and down sampling
 ```
 
 ```{r load-data, message=FALSE}
@@ -228,9 +229,12 @@ closure_CA <- closure_CA |>
          dist_st_ratio, 
          dist_per_pupil_expend, 
          dist_num_schools) |> 
-  mutate(across(where(is.numeric), scale),
-         across(where(is.numeric), as.vector)) |> 
+  mutate(across(where(is.numeric) & !year, scale),
+         across(where(is.numeric) & !year, as.vector), 
+         year = year - min(year)) |> 
   na.omit()
+
+closure_CA
 
 #SCHOOL LEVEL
 #pct_dist_enroll
@@ -246,11 +250,11 @@ closure_CA <- closure_CA |>
 ```
 
 ```{r cleaning-year-factor}
-closure_CA <- closure_CA |> 
-  filter(year != 2000 & year != 2001 & year != 2002)
-
-closure_CA <- closure_CA |> 
-  mutate(year = factor(year, levels = c(2003:2017)))
+# closure_CA <- closure_CA |> 
+#   filter(year != 2000 & year != 2001 & year != 2002)
+# 
+# closure_CA <- closure_CA |> 
+#   mutate(year = factor(year, levels = c(2003:2017)))
 ```
 
 # Check Data
@@ -267,14 +271,14 @@ closure_CA |>
 #Number of Schools
 n_distinct(closure_CA$school_id)
 
+#Number of Districts
+n_distinct(closure_CA$agency_id)
+
 #Number of Schools Over Time
 closure_CA |> 
   group_by(year) |> 
   summarize(num_schools = n()) |> 
   ungroup()
-
-#Number of Districts
-n_distinct(closure_CA$agency_id)
 
 #Number of Districts Over Time
 closure_CA |> 
@@ -282,7 +286,17 @@ closure_CA |>
   summarize(num_dists = n_distinct(agency_id)) |> 
   ungroup()
 
+#Prior of closure
+summary(closure_CA$closed)
+closure_CA$closed==1
 
+```
+
+```{r clean-first-three-years}
+#Clean out first three years (due to lags earlier)
+closure_CA <- closure_CA |> 
+  filter(year > 2) |> 
+  mutate(year = year - min(year))
 ```
 
 # 5 Hypothesis
@@ -323,6 +337,105 @@ We'll use the quadratic effect fit
 
 \>\>\> ARE WE SUPPOSED TO TEST EACH VARIABLE??
 
+## Models?
+
+```{r make-testing-samples}
+set.seed(1234)
+down_sample <- closure_CA |> 
+  downSample(y = closure_CA$closed)
+
+down_sample <- down_sample |> droplevels()
+```
+
+```{r view-samples}
+# sample
+# down_sample
+# up_sample
+# mod_down_samp
+
+# Check Sample Proportions
+sample |> 
+  group_by(closed) |> 
+  summarize(n = n()) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+down_sample |> 
+  group_by(closed) |> 
+  summarize(n = n()) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+up_sample |> 
+  group_by(closed) |> 
+  summarize(n = n()) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+
+mod_down_samp |> 
+  group_by(closed) |> 
+  summarize(n = n()) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup()
+```
+
+```{r down-sample}
+m0_d <- glm(closed ~ year,  
+          data = down_sample,
+          family = binomial(link = "logit"))
+
+
+m1_d <- glmer(closed ~ year + (1 | school_id) ,  
+            data = down_sample,
+            family = binomial(link = "logit"))
+
+summary(m0_d)
+summary(m1_d)
+```
+
+```{r up-sample}
+m0 <- glm(closed ~ year,  
+          data = up_sample,
+          family = binomial(link = "logit"))
+
+
+
+m1 <- glmer(closed ~ year + (1 | school_id) ,  
+            data = up_sample,
+            family = binomial(link = "logit"))
+
+summary(m0)
+summary(m1)
+
+#start with regular glm and then input the values in a MLGLM as starting values
+#try to find a way to manually downsample the data
+```
+
+```{r modified-down-sample}
+m0_mod_d <- glm(closed ~ year,  
+          data = mod_down_samp,
+          family = binomial(link = "logit"))
+
+
+
+m1_mod_d <- glmer(closed ~ year + (1 | school_id) ,  
+            data = mod_down_samp,
+            family = binomial(link = "logit"))
+
+summary(m0_mod_d)
+summary(m1_mod_d)
+```
+
+```{r}
+closure |> 
+  group_by(closed, dist_state_abbr) |> 
+  summarize(n = n()) |> 
+  mutate(prop = n / sum(n)) |> 
+  ungroup() |> 
+  filter(closed == 1) |> 
+  arrange(desc(prop))
+```
+
 # OLD AND WRONG
 
 ## 5 Hypothesis
@@ -360,7 +473,7 @@ logLik(m1) #deviance
 ## Step 2
 
 ```{r random-intercept}
-m2 <- glmer(closed ~ (1 | agency_id),  
+m2 <- glmer(closed ~ (1 | school_id),  
             data = closure_CA, 
             family = 'binomial') 
 
@@ -393,8 +506,17 @@ anova(m2,m1)
 #num_schools
 ```
 
+```{r}
+closure_CA |> 
+  ggplot(aes(x = year)) + geom_histogram()
+```
+
 ```{r level-1-predictors}
-m3 <- glmer(closed ~ pct_dist_enroll + st_ratio + school_level + (1 | agency_id),  
+m3 <- glmer(closed ~ 
+              pct_dist_enroll 
+            #+ st_ratio 
+            #+ school_level 
+            + (1 | school_id),  
             data = closure_CA, 
             family = "binomial") 
 
