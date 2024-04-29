@@ -493,12 +493,12 @@ anova(mdfit, mlfit)
 ```
 
 ```{r fit-pct-dist-enroll}
-mlfit <- lm(closed == 1 ~ as.numeric(year), 
-            data = closure_CA)
-mqfit <- lm(closed == 1 ~ poly(as.numeric(year), 2), # quadratic effect
-            data = closure_CA)
-mdfit <- lm(closed == 1 ~ closure_CA$year, 
-            data = closure_CA) # time dummies
+mlfit <- lm(num_closed ~ as.numeric(avg_schl_pct_dist_enroll), 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ closure_dist_CA$year, 
+            data = closure_dist_CA) # time dummies
 
 summary(mlfit)
 summary(mqfit)
