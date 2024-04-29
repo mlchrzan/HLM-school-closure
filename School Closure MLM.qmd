@@ -475,15 +475,12 @@ closure_dist_CA |>
 ## Test as Non-linear Parameters
 
 ```{r fit-time}
-mlfit <- glm(closed ~ as.numeric(year), 
-            data = closure_CA, 
-            family = 'binomial')
-mqfit <- glm(closed ~ poly(as.numeric(year), 2), # quadratic effect
-            data = closure_CA, 
-            family = 'binomial')
-mdfit <- glm(closed ~ closure_CA$year, 
-            data = closure_CA, 
-            family = 'binomial') # time dummies
+mlfit <- lm(num_closed ~ year, 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ closure_dist_CA$year, 
+            data = closure_dist_CA) # time dummies
 
 summary(mlfit)
 summary(mqfit)
