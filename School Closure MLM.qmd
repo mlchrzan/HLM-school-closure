@@ -231,9 +231,7 @@ closure_dist <- closure_dist |>
             location_type = Mode(location_type),
             across(starts_with('avg_schl_tot_'), mean), 
             across(starts_with('avg_schl_pct_'), mean), 
-            avg_schl_1_yr_enroll_change = mean(one_yr_enroll_schl), 
             avg_schl_3_yr_enroll_change = mean(three_yr_enroll_schl), 
-            avg_schl_5_yr_enroll_change = mean(five_yr_enroll_schl),
             across(starts_with('dist_'), ~ first(.)), 
             .groups = 'keep') |>
   ungroup() 
@@ -474,7 +472,9 @@ closure_dist_CA |>
 
 ## Test Linearity
 
-```{r fit-time}
+### Time
+
+```{r fit}
 mlfit <- lm(num_closed ~ year, 
             data = closure_dist_CA)
 mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
@@ -487,12 +487,14 @@ summary(mqfit)
 summary(mdfit)
 ```
 
-```{r test-time}
+```{r test}
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit)
 ```
 
-```{r fit-pct-dist-enroll}
+### Percentage of District Enrollment
+
+```{r fit}
 mlfit <- lm(num_closed ~ as.numeric(avg_schl_pct_dist_enroll), 
             data = closure_dist_CA)
 mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
@@ -505,9 +507,49 @@ summary(mqfit)
 summary(mdfit)
 ```
 
-```{r test-pct-dist-enroll}
+```{r test}
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit) 
+```
+
+### District Student-Teacher Ratio
+
+```{r fit}
+
+```
+
+```{r test}
+
+```
+
+### Average School Student-Teacher Ratio
+
+```{r fit}
+
+```
+
+```{r test}
+
+```
+
+### Per-Pupil Expenditure
+
+```{r fit}
+
+```
+
+```{r test}
+
+```
+
+### Number of Schools
+
+```{r fit}
+
+```
+
+```{r test}
+
 ```
 
 ### Conclusions
