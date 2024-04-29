@@ -21,6 +21,7 @@ library(corrplot) #for correlation matrix
 library(plotly)
 library(naniar)
 library(caret) #for up and down sampling
+library(beepr) #for noises to alert when code is done running!
 ```
 
 ```{r load-data, message=FALSE}
@@ -100,7 +101,7 @@ closure <- closure |>
   mutate(school_id = factor(school_id, levels = unique(school_id)), 
          agency_id = factor(agency_id, levels = unique(agency_id)), 
          #year = factor(year, levels = unique(year)),
-         closed = factor(closed, levels = unique(closed)),
+         #closed = factor(closed, levels = unique(closed)),
          school_level = factor(school_level, levels = unique(school_level)), 
          charter = factor(charter, levels = unique(charter)), 
          magnet = factor(magnet, levels = unique(magnet)), 
@@ -171,11 +172,7 @@ closure <- closure |>
 #Enrollment Trends
 closure <- closure |> 
   group_by(school_id) |> 
-  mutate(one_yr_enroll_schl = tot_students - dplyr::lag(tot_students),
-         one_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students),
-         five_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 5),
-         five_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 5), 
-         three_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 3), 
+  mutate(three_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 3), 
          three_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 3)) |>
   ungroup()
 
@@ -189,10 +186,10 @@ closure <- closure |>
   mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
 
 #Calculate the number of schools a district has within a given year
-closure <- closure |> 
-  group_by(agency_id, year) |> 
-  mutate(dist_num_schools = n_distinct(school_id)) |> 
-  ungroup()
+# closure <- closure |> 
+#   group_by(agency_id, year) |> 
+#   mutate(dist_num_schools = n_distinct(school_id)) |> 
+#   ungroup()
 ```
 
 ```{r cleaning-dist-pct-enroll}
@@ -211,56 +208,69 @@ closure <- closure |>
 summary(closure$pct_dist_enroll)
 ```
 
+```{r aggregate-to-district-level}
+closure_dist <- closure |> 
+  mutate(closed = as.numeric(closed)) |>
+  rename_with(~ gsub("^tot_", "avg_schl_tot_", .x), starts_with("tot_")) |> 
+  rename_with(~ gsub("^pct_", "avg_schl_pct_", .x), starts_with("pct_")) 
+
+closure_dist <- closure_dist |> 
+  group_by(agency_id, year) |> 
+  summarize(num_closed = sum(closed),
+            num_schools = n_distinct(school_id),
+            avg_schl_theil = mean(sch_theil),
+            num_schl_more_diverse = sum(school_more_diverse == 'Yes'),
+            num_level_elem = sum(school_level == 1), 
+            num_level_midd = sum(school_level == 2), 
+            num_level_high = sum(school_level == 3), 
+            num_level_other = sum(school_level == 4), 
+            num_charter = sum(charter == '1-Yes'), 
+            num_magnet = sum(magnet == '1-Yes'), 
+            num_title_1 = sum(title1 == '1-Yes'), 
+            avg_schl_st_ratio = mean(st_ratio), 
+            location_type = Mode(location_type),
+            across(starts_with('avg_schl_tot_'), mean), 
+            across(starts_with('avg_schl_pct_'), mean), 
+            avg_schl_1_yr_enroll_change = mean(one_yr_enroll_schl), 
+            avg_schl_3_yr_enroll_change = mean(three_yr_enroll_schl), 
+            avg_schl_5_yr_enroll_change = mean(five_yr_enroll_schl),
+            across(starts_with('dist_'), ~ first(.)), 
+            .groups = 'keep') |>
+  ungroup() 
+```
+
+```{r clean-up-closure-dist}
+#Add District Enrollment Trends
+closure_dist <- closure_dist |> 
+  group_by(agency_id) |> 
+  mutate(three_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 3)) |>
+  ungroup()
+
+#Arranging Data for Readability
+closure_dist <- closure_dist |> 
+  select(agency_id, year, 
+         dist_state_name, dist_state_abbr, location_type, 
+         num_closed, num_schools, everything()) |> 
+  rename_with(~str_remove(.x, "^dist_"), starts_with("dist_")) 
+
+closure_dist
+```
+
 ```{r filter-CA}
-closure_CA <- closure |> 
-  filter(dist_state_abbr == "CA") 
+closure_dist_CA <- closure_dist |> 
+  filter(state_abbr == "CA") 
+
+closure_dist_CA
 ```
 
-```{r standardize}
-closure_CA <- closure_CA |> 
-  select(agency_id, school_id, school_level,
-         year, closed, dist_state_abbr, 
-         location_type,
-         pct_dist_enroll, 
-         school_level, 
-         st_ratio, 
-         school_more_diverse,
-         three_yr_enroll_dist, 
-         dist_st_ratio, 
-         dist_per_pupil_expend, 
-         dist_num_schools) |> 
-  mutate(across(where(is.numeric) & !year, scale),
-         across(where(is.numeric) & !year, as.vector), 
-         year = year - min(year)) |> 
-  na.omit()
-
-closure_CA
-
-#SCHOOL LEVEL
-#pct_dist_enroll
-#st_ratio
-#school_level
-#school_more_diverse ???, maybe we try this with schl_pct_blk and dist_pct_blk at level 2
-#five_yr_enroll_schl 
-
-#DISTRICT LEVEL
-#dist_st_ratio
-#dist_per_pupil_expend
-#dist_num_schools
-```
-
-```{r cleaning-year-factor}
-# closure_CA <- closure_CA |> 
-#   filter(year != 2000 & year != 2001 & year != 2002)
-# 
-# closure_CA <- closure_CA |> 
-#   mutate(year = factor(year, levels = c(2003:2017)))
+```{r alert-data-is-ready}
+beep(sound = 8)
 ```
 
 # Check Data
 
 ```{r check-level}
-closure_CA |>
+closure_dist_CA |>
   group_by(agency_id) |>
   summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE)))
 
@@ -268,54 +278,224 @@ closure_CA |>
 ```
 
 ```{r data-characteristics}
-#Number of Schools
-n_distinct(closure_CA$school_id)
-
 #Number of Districts
-n_distinct(closure_CA$agency_id)
+n_distinct(closure_dist_CA$agency_id)
 
 #Number of Schools Over Time
-closure_CA |> 
+closure_dist_CA |> 
   group_by(year) |> 
-  summarize(num_schools = n()) |> 
+  summarize(num_schools = sum(num_schools)) |> 
   ungroup()
 
 #Number of Districts Over Time
-closure_CA |> 
+closure_dist_CA |> 
   group_by(year) |> 
   summarize(num_dists = n_distinct(agency_id)) |> 
   ungroup()
 
-#Prior of closure
-summary(closure_CA$closed)
-closure_CA$closed==1
+#Average Number of Schools Closed
+summary(closure_dist_CA$num_closed)
 
+#Number of Closures Over Time
+closure_dist_CA |> 
+  group_by(year) |> 
+  summarize(num_closed = sum(num_closed)) |> 
+  ungroup()
 ```
 
-```{r clean-first-three-years}
-#Clean out first three years (due to lags earlier)
-closure_CA <- closure_CA |> 
-  filter(year > 2) |> 
-  mutate(year = year - min(year))
+```{r select-vars-and-remove-NAs}
+closure_dist_CA <- closure_dist_CA |> 
+  select(agency_id, year, num_closed,
+         location_type,
+         avg_schl_pct_dist_enroll, 
+         avg_schl_st_ratio, 
+         num_schl_more_diverse, 
+         st_ratio, 
+         per_pupil_expend, 
+         num_schools) |>  
+  na.omit()
+
+
+#DISTRICT LEVEL
+#location_type
+
+#TIME LEVEL
+#schl_pct_dist_enroll
+#schl_st_ratio
+#num_school_more_diverse ???, could also try specific racial identity parameters
+#dist_st_ratio
+#dist_per_pupil_expend
+#dist_num_schools
 ```
 
 # 5 Hypothesis
 
 ## Examine Linearity and Outliers
 
-```{r check-linearity-plot-attitudes-over-time}
-closure_CA |> 
+```{r check-linearity-year}
+closure_dist_CA |> 
   group_by(year) |> 
-  summarize(num_closed = sum(as.numeric(closed == 1))) |> 
+  summarize(num_closed = sum(num_closed)) |> 
   ungroup() |> 
-  ggplot(aes(x = as.numeric(year),
+  ggplot(aes(x = year,
              y = num_closed)) +
   geom_point() +
   geom_smooth(method = "loess", se = F) + # flexible model
   geom_smooth(method = "lm", se = F, colour = "red")
 ```
 
-```{r test-time-options}
+```{r check-linearity-pct-dist-enroll}
+#District Level
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(avg_pct_dist_enroll = mean(avg_schl_pct_dist_enroll, 
+                                       na.rm = T), 
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot(aes(x = avg_pct_dist_enroll,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+
+#Time Level
+closure_dist_CA |> 
+  ggplot(aes(x = avg_schl_pct_dist_enroll,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r check-linearity-dist-st-ratio}
+#District Level
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(avg_st_ratio = mean(st_ratio, na.rm = T), 
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot(aes(x = avg_st_ratio,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+
+#Time Level
+closure_dist_CA |> 
+  ggplot(aes(x = st_ratio,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r check-linearity-schl-st-ratio}
+#District Level
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(avg_schl_st = mean(avg_schl_st_ratio, na.rm = T), 
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot(aes(x = avg_schl_st,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+
+#Time Level
+closure_dist_CA |> 
+  ggplot(aes(x = avg_schl_st_ratio,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r check-linearity-per-pupil}
+#District Level
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(avg_per_pupil = mean(per_pupil_expend, na.rm = T), 
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot(aes(x = avg_per_pupil,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+
+#Time Level
+closure_dist_CA |> 
+  ggplot(aes(x = per_pupil_expend,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r check-linearity-num-schools}
+#District Level
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(avg_num_schools = mean(num_schools, na.rm = T), 
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot(aes(x = avg_num_schools,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+
+#Time Level
+closure_dist_CA |> 
+  ggplot(aes(x = num_schools,
+             y = num_closed)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red")
+```
+
+```{r all-in-one, warning=FALSE}
+closure_dist_CA |> 
+  group_by(agency_id) |> 
+  summarize(num_closed = sum(num_closed), 
+            across(where(is.numeric), ~mean(., na.rm = T))) |> 
+  pivot_longer(cols = -num_closed & is.numeric, 
+               names_to = 'variable', 
+               values_to = 'value') |> 
+  ggplot(aes(x = num_closed,
+             y = value)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red") +
+  facet_wrap(~variable, 
+             scales = 'free')
+```
+
+## Test as Non-linear Parameters
+
+```{r fit-time}
+mlfit <- glm(closed ~ as.numeric(year), 
+            data = closure_CA, 
+            family = 'binomial')
+mqfit <- glm(closed ~ poly(as.numeric(year), 2), # quadratic effect
+            data = closure_CA, 
+            family = 'binomial')
+mdfit <- glm(closed ~ closure_CA$year, 
+            data = closure_CA, 
+            family = 'binomial') # time dummies
+
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
+```
+
+```{r test-time}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit) 
+```
+
+```{r fit-pct-dist-enroll}
 mlfit <- lm(closed == 1 ~ as.numeric(year), 
             data = closure_CA)
 mqfit <- lm(closed == 1 ~ poly(as.numeric(year), 2), # quadratic effect
@@ -328,229 +508,42 @@ summary(mqfit)
 summary(mdfit)
 ```
 
-```{r test-time-models}
+```{r test-pct-dist-enroll}
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit) 
 ```
 
-We'll use the quadratic effect fit
+### Conclusions
 
-\>\>\> ARE WE SUPPOSED TO TEST EACH VARIABLE??
+-   Time should be a quadratic parameter
 
-## Models?
+-   
 
-```{r make-testing-samples}
-set.seed(1234)
-down_sample <- closure_CA |> 
-  downSample(y = closure_CA$closed)
+## Build and Test Models
 
-down_sample <- down_sample |> droplevels()
+```{r standardize}
+closure_dist_CA <- closure_dist_CA |> 
+  mutate(across(where(is.numeric) & !year, scale),
+         across(where(is.numeric) & !year, as.vector), 
+         year = year - min(year)) 
+
+
+#DISTRICT LEVEL
+#location_type
+
+#TIME LEVEL
+#schl_pct_dist_enroll
+#schl_st_ratio
+#num_school_more_diverse ???, could also try specific racial identity parameters
+#dist_st_ratio
+#dist_per_pupil_expend
+#dist_num_schools
 ```
 
-```{r view-samples}
-# sample
-# down_sample
-# up_sample
-# mod_down_samp
+## Step 1: Base Model with Time Predictor
 
-# Check Sample Proportions
-sample |> 
-  group_by(closed) |> 
-  summarize(n = n()) |> 
-  mutate(prop = n / sum(n)) |> 
-  ungroup()
-
-down_sample |> 
-  group_by(closed) |> 
-  summarize(n = n()) |> 
-  mutate(prop = n / sum(n)) |> 
-  ungroup()
-
-up_sample |> 
-  group_by(closed) |> 
-  summarize(n = n()) |> 
-  mutate(prop = n / sum(n)) |> 
-  ungroup()
-
-mod_down_samp |> 
-  group_by(closed) |> 
-  summarize(n = n()) |> 
-  mutate(prop = n / sum(n)) |> 
-  ungroup()
-```
-
-```{r down-sample}
-m0_d <- glm(closed ~ year,  
-          data = down_sample,
-          family = binomial(link = "logit"))
-
-
-m1_d <- glmer(closed ~ year + (1 | school_id) ,  
-            data = down_sample,
-            family = binomial(link = "logit"))
-
-summary(m0_d)
-summary(m1_d)
-```
-
-```{r up-sample}
-m0 <- glm(closed ~ year,  
-          data = up_sample,
-          family = binomial(link = "logit"))
-
-
-
-m1 <- glmer(closed ~ year + (1 | school_id) ,  
-            data = up_sample,
-            family = binomial(link = "logit"))
-
-summary(m0)
-summary(m1)
-
-#start with regular glm and then input the values in a MLGLM as starting values
-#try to find a way to manually downsample the data
-```
-
-```{r modified-down-sample}
-m0_mod_d <- glm(closed ~ year,  
-          data = mod_down_samp,
-          family = binomial(link = "logit"))
-
-
-
-m1_mod_d <- glmer(closed ~ year + (1 | school_id) ,  
-            data = mod_down_samp,
-            family = binomial(link = "logit"))
-
-summary(m0_mod_d)
-summary(m1_mod_d)
-```
-
-```{r}
-closure |> 
-  group_by(closed, dist_state_abbr) |> 
-  summarize(n = n()) |> 
-  mutate(prop = n / sum(n)) |> 
-  ungroup() |> 
-  filter(closed == 1) |> 
-  arrange(desc(prop))
-```
-
-# OLD AND WRONG
-
-## 5 Hypothesis
-
-```{r mean-center}
-# vars <- closure_CA  |>  
-#   select(where(is.numeric))  |>  
-#   names() 
-# vars <- setNames(vars, str_c(vars, "_c")) 
-# #vars
-# 
-# closure_CA <- closure_CA |>
-#   mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
-```
-
-```{r check-mean-center}
-# closure_CA |>
-#   select(ends_with("_c")) |>
-#   summary()
-```
-
-## Step 1
-
-```{r}
-m1 <- glm(closed ~ 1 ,
-         data = closure_CA, 
-         family = 'binomial')
-summary(m1)
-```
-
-```{r}
-logLik(m1) #deviance
-```
-
-## Step 2
-
-```{r random-intercept}
-m2 <- glmer(closed ~ (1 | school_id),  
-            data = closure_CA, 
-            family = 'binomial') 
-
-summary(m2)
-```
-
-```{r icc}
-icc(m2)
-```
-
-```{r anova-m2-m1}
-(2* logLik(m2)) - (2* logLik(m1))
-
-anova(m2,m1)
-```
+## Step 2: ???
 
 ## Step 3: A model with a level 1 predictor
 
-```{r variables}
-#SCHOOL LEVEL
-#pct_dist_enroll
-#st_ratio
-#school_level
-#school_more_diverse ???
-
-#DISTRICT LEVEL
-#dist_five_year_enroll 
-#dist_st_ratio
-#dist_per_pupil_expend
-#num_schools
-```
-
-```{r}
-closure_CA |> 
-  ggplot(aes(x = year)) + geom_histogram()
-```
-
-```{r level-1-predictors}
-m3 <- glmer(closed ~ 
-              pct_dist_enroll 
-            #+ st_ratio 
-            #+ school_level 
-            + (1 | school_id),  
-            data = closure_CA, 
-            family = "binomial") 
-
-summary(m3)
-```
-
-```{r model-comparison-2}
-anova(m3, m2)
-#(2* logLik(m2)) - (2* logLik(m1))
-#(2* logLik(m3)) - (2* logLik(m2))
-
-#Not nested models! There was some listwise deletion from one of the covariates missing variables
-
-#Take out all the missing values after selecting the variables, do some naniar analysis on the missing data 
-
-# logLik(m1)
-# logLik(m2)
-# logLik(m3)
-```
-
 ## Step 4 a model with level 2 predictors
-
-```{r level-2-predictors}
-#DISTRICT LEVEL
-#dist_five_year_enroll 
-#dist_st_ratio
-#dist_per_pupil_expend
-#num_schools
-
-m4 <- glmer(closed ~ pct_di5st_enroll + st_ratio + school_level 
-            + three_yr_enroll_dist + dist_st_ratio + dist_per_pupil_expend 
-            + dist_num_schools + (1 | agency_id),  
-            data = closure_CA, 
-            family = "binomial") 
-
-summary(m4)
-```

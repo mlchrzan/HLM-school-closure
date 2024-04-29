@@ -1,3 +1,24 @@
+```{r make-testing-samples}
+set.seed(1234)
+down_sample <- closure_CA |> 
+  downSample(y = closure_CA$closed)
+
+down_sample <- down_sample |> droplevels()
+```
+
+```{r down-sample}
+m0_d <- glm(closed ~ year,  
+            data = down_sample,
+            family = binomial(link = "logit"))
+
+
+m1_d <- glmer(closed ~ year + (1 | school_id) ,  
+              data = down_sample,
+              family = binomial(link = "logit"))
+
+summary(m0_d)
+summary(m1_d)
+```
 
 up_sample <- closure_CA |> 
   upSample(y = closure_CA$closed)
@@ -88,3 +109,158 @@ closure |>
   ungroup() |> 
   filter(closed == 1) |> 
   arrange(desc(prop))
+
+
+{r cleaning-year-factor}
+# closure_CA <- closure_CA |> 
+#   filter(year != 2000 & year != 2001 & year != 2002)
+# 
+# closure_CA <- closure_CA |> 
+#   mutate(year = factor(year, levels = c(2003:2017)))
+
+
+# OLD AND WRONG
+
+## 5 Hypothesis
+
+```{r mean-center}
+# vars <- closure_CA  |>  
+#   select(where(is.numeric))  |>  
+#   names() 
+# vars <- setNames(vars, str_c(vars, "_c")) 
+# #vars
+# 
+# closure_CA <- closure_CA |>
+#   mutate(across(all_of(vars), ~ . - mean(., na.rm = TRUE))) 
+```
+
+```{r check-mean-center}
+# closure_CA |>
+#   select(ends_with("_c")) |>
+#   summary()
+```
+
+## Step 1
+
+```{r}
+m1 <- glm(closed ~ 1 ,
+          data = closure_CA, 
+          family = 'binomial')
+summary(m1)
+```
+
+```{r}
+logLik(m1) #deviance
+```
+
+## Step 2
+
+```{r random-intercept}
+m2 <- glmer(closed ~ (1 | school_id),  
+            data = closure_CA, 
+            family = 'binomial') 
+
+summary(m2)
+```
+
+```{r icc}
+icc(m2)
+```
+
+```{r anova-m2-m1}
+(2* logLik(m2)) - (2* logLik(m1))
+
+anova(m2,m1)
+```
+
+## Step 3: A model with a level 1 predictor
+
+```{r variables}
+#SCHOOL LEVEL
+#pct_dist_enroll
+#st_ratio
+#school_level
+#school_more_diverse ???
+
+#DISTRICT LEVEL
+#dist_five_year_enroll 
+#dist_st_ratio
+#dist_per_pupil_expend
+#num_schools
+```
+
+```{r}
+closure_CA |> 
+  ggplot(aes(x = year)) + geom_histogram()
+```
+
+```{r level-1-predictors}
+m3 <- glmer(closed ~ 
+              pct_dist_enroll 
+            #+ st_ratio 
+            #+ school_level 
+            + (1 | school_id),  
+            data = closure_CA, 
+            family = "binomial") 
+
+summary(m3)
+```
+
+```{r model-comparison-2}
+anova(m3, m2)
+#(2* logLik(m2)) - (2* logLik(m1))
+#(2* logLik(m3)) - (2* logLik(m2))
+
+#Not nested models! There was some listwise deletion from one of the covariates missing variables
+
+#Take out all the missing values after selecting the variables, do some naniar analysis on the missing data 
+
+# logLik(m1)
+# logLik(m2)
+# logLik(m3)
+```
+
+## Step 4 a model with level 2 predictors
+
+```{r level-2-predictors}
+#DISTRICT LEVEL
+#dist_five_year_enroll 
+#dist_st_ratio
+#dist_per_pupil_expend
+#num_schools
+
+m4 <- glmer(closed ~ pct_di5st_enroll + st_ratio + school_level 
+            + three_yr_enroll_dist + dist_st_ratio + dist_per_pupil_expend 
+            + dist_num_schools + (1 | agency_id),  
+            data = closure_CA, 
+            family = "binomial") 
+
+summary(m4)
+```
+
+{r select-vars-and-standardize}
+closure_CA <- closure_CA |> 
+  select(agency_id, school_id, school_level,
+         year, closed, dist_state_abbr, 
+         location_type,
+         pct_dist_enroll, 
+         school_level, 
+         st_ratio, 
+         school_more_diverse,
+         three_yr_enroll_dist, 
+         dist_st_ratio, 
+         dist_per_pupil_expend, 
+         dist_num_schools) |> 
+  mutate(across(where(is.numeric) & !year, scale),
+         across(where(is.numeric) & !year, as.vector), 
+         year = year - min(year)) |> 
+  na.omit()
+
+closure_CA
+
+
+{r clean-first-three-years}
+#Clean out first three years (due to lags earlier)
+closure_CA <- closure_CA |> 
+  filter(year > 2) |> 
+  mutate(year = year - min(year))
