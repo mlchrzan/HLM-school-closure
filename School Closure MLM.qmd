@@ -472,14 +472,14 @@ closure_dist_CA |>
              scales = 'free')
 ```
 
-## Test as Non-linear Parameters
+## Test Linearity
 
 ```{r fit-time}
 mlfit <- lm(num_closed ~ year, 
             data = closure_dist_CA)
 mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ closure_dist_CA$year, 
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
             data = closure_dist_CA) # time dummies
 
 summary(mlfit)
@@ -489,7 +489,7 @@ summary(mdfit)
 
 ```{r test-time}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit) 
+anova(mdfit, mlfit)
 ```
 
 ```{r fit-pct-dist-enroll}
@@ -497,7 +497,7 @@ mlfit <- lm(num_closed ~ as.numeric(avg_schl_pct_dist_enroll),
             data = closure_dist_CA)
 mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ closure_dist_CA$year, 
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
             data = closure_dist_CA) # time dummies
 
 summary(mlfit)
@@ -512,9 +512,9 @@ anova(mdfit, mlfit)
 
 ### Conclusions
 
--   Time should be a quadratic parameter
+-   Time should be quadratic
 
--   
+-   Percentage of District Enrollment should be linear
 
 ## Build and Test Models
 
