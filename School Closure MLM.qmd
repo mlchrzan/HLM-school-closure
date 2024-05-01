@@ -275,30 +275,144 @@ closure_dist_CA |>
 #All numerical variables are time-varying
 ```
 
-```{r data-characteristics}
+```{r data-characteristics, message=FALSE}
 #Number of Districts
 n_distinct(closure_dist_CA$agency_id)
+n_distinct(closure_dist_CA$year)
 
-#Number of Schools Over Time
+closure_dist_CA
+
+#Number of Schools, Closures and Districts Over Time
 closure_dist_CA |> 
   group_by(year) |> 
-  summarize(num_schools = sum(num_schools)) |> 
+  summarize(num_schools = sum(num_schools), 
+            num_closed = sum(num_closed), 
+            num_dists = n_distinct(agency_id)) |> 
   ungroup()
 
-#Number of Districts Over Time
+#Mean and SD for all predictor variables over time
+left_join(
+  closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric), ~mean(., na.rm = T))) |> 
+    ungroup(), 
+  closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric), ~sd(., na.rm = T))) |> 
+    ungroup(), 
+  by = join_by(year), 
+  suffix = c("_mean", "_sd")) |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  arrange(year, variable) |> 
+  mutate(value= round(value, digits = 2)) |> 
+  pivot_wider(names_from = variable, 
+              values_from = value)
+
+
+##Mean and SD for all predictor variables (no respect to time)
+bind_rows(
+  closure_dist_CA |> 
+    summarise(across(where(is.numeric), ~mean(., na.rm = T))) |> 
+    mutate(stat = 'mean') |> 
+    select(stat, everything(), -year), 
+  closure_dist_CA |> 
+    summarise(across(where(is.numeric), ~sd(., na.rm = T))) |> 
+    mutate(stat = 'sd') |> 
+    select(stat, everything(), -year), 
+  closure_dist_CA |> 
+    summarise(across(where(is.numeric), ~max(., na.rm = T))) |> 
+    mutate(stat = 'max') |> 
+    select(stat, everything(), -year)) |> 
+  pivot_longer(cols = -stat, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  arrange(stat, variable) |> 
+  mutate(value = round(value, digits = 2)) |> 
+  pivot_wider(names_from = stat, 
+              values_from = value)
+
+
+closure_dist_CA |> 
+  group_by(location_type) |> 
+  summarize(n = n()) |> 
+  ungroup()
+```
+
+```{r viz-closures}
 closure_dist_CA |> 
   group_by(year) |> 
-  summarize(num_dists = n_distinct(agency_id)) |> 
-  ungroup()
+  summarize(num_dists = n_distinct(agency_id),
+            num_schools = sum(num_schools),
+            num_closed = sum(num_closed)) |> 
+  ungroup() |> 
+  ggplot() +
+  geom_line(aes(x = year, 
+                y = num_closed, 
+                color = "Number of Schools Closed"), 
+            linewidth = 2) +
+  geom_line(aes(x = year, 
+                y = num_schools / 100, 
+                color = "Total Number of Schools"), 
+            linewidth = 2) +
+  scale_y_continuous(
+    sec.axis = sec_axis(~ . * 100, 
+                        name = "Number of Schools")) +
+  annotate("text", 
+           x = 2003, 
+           y = 15, 
+           label = "Closed Schools", 
+           vjust = -0.5, hjust = 1, 
+           color = 'blue4') +  # Add label for closed schools
+  annotate("text", 
+           x = 2003, 
+           y = 8000 / 100,  
+           label = "Total Schools", 
+           vjust = 1, hjust = 1, 
+           color = 'red4') +  # Add label for total schools
+  scale_color_manual(values = c('blue4', 'red4')) +
+  labs(title = "Trends for Schools Closed and Number of Schools",
+       y = "Number of Closed Schools",
+       x = "Year",
+       color = "Scale") +
+  theme_minimal() + 
+  theme(legend.position = 'none')
+```
 
-#Average Number of Schools Closed
-summary(closure_dist_CA$num_closed)
-
-#Number of Closures Over Time
+```{r viz-closures-by-locale}
 closure_dist_CA |> 
-  group_by(year) |> 
-  summarize(num_closed = sum(num_closed)) |> 
-  ungroup()
+  group_by(year, location_type) |> 
+  summarize(num_schools = sum(num_schools), 
+            num_closed = sum(num_closed), 
+            num_dists = n_distinct(agency_id), 
+            .groups = 'keep') |> 
+  ungroup() |> 
+  ggplot(aes(x = year, 
+             y = num_closed)) + 
+  geom_line(linewidth = 2) +
+  facet_wrap(~location_type, ncol = 1)
+```
+
+```{r viz-var-summary-over-time}
+left_join(
+  closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric), ~mean(., na.rm = T))) |> 
+    ungroup(), 
+  closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric), ~sd(., na.rm = T))) |> 
+    ungroup(), 
+  by = join_by(year), 
+  suffix = c("_mean", "_sd")) |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  ggplot(aes(x = year, 
+             y = value)) + 
+  geom_line() + 
+  facet_wrap(~variable, scales = 'free', ncol = 2)
 ```
 
 ```{r select-vars-and-remove-NAs}
