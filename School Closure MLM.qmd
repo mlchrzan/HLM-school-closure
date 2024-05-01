@@ -714,7 +714,7 @@ anova(mdfit, mlfit)
 ## Build and Test Models
 
 ```{r standardize}
-closure_dist_CA <- closure_dist_CA |> 
+closure_dist_CA_std <- closure_dist_CA |> 
   mutate(across(where(is.numeric) & !year, scale),
          across(where(is.numeric) & !year, as.vector), 
          year = year - min(year)) 
@@ -735,12 +735,12 @@ closure_dist_CA <- closure_dist_CA |>
 ## Step 1: Base Model with Time Predictor
 
 ```{r base-model-time}
-m1 <- lm(num_closed ~ year ,  data = closure_dist_CA)
+m1 <- lm(num_closed ~ year ,  data = closure_dist_CA_std)
 summary(m1)
 ```
 
 ```{r model-random-intercept}
-m2 <- lmer(num_closed ~ year + (1 | agency_id) ,  data = closure_dist_CA, REML = F)
+m2 <- lmer(num_closed ~ year + (1 | agency_id) ,  data = closure_dist_CA_std, REML = F)
 summary(m2)
 ```
 
@@ -759,7 +759,7 @@ m3 <- lmer(num_closed ~ year
            + avg_schl_pct_dist_enroll
            + avg_schl_st_ratio
            + (1 | agency_id),
-           data = closure_dist_CA,
+           data = closure_dist_CA_std,
            REML = F)
 summary(m3)
 ```
@@ -778,7 +778,7 @@ m4 <- lmer(num_closed ~ year
            + st_ratio
            + num_schools
            + (1 | agency_id),
-           data = closure_dist_CA,
+           data = closure_dist_CA_std,
            REML = F)
 summary(m4)
 ```
@@ -798,7 +798,7 @@ m5 <- lmer(num_closed ~ year
            + num_schools
            + (1 | agency_id)
            + (0 + year | agency_id),
-           data = closure_dist_CA,
+           data = closure_dist_CA_std,
            REML = F)
 summary(m5)
 
@@ -818,7 +818,7 @@ m6 <- lmer(num_closed ~ year
            + st_ratio
            + num_schools
            + (1 + year | agency_id),
-           data = closure_dist_CA,
+           data = closure_dist_CA_std,
            REML = F)
 summary(m6)
 ```
@@ -838,7 +838,7 @@ m7 <- lmer(num_closed ~ year
            + num_schools
            + I(per_pupil_expend*avg_schl_st_ratio)
            + (1 + year | agency_id),
-           data = closure_dist_CA,
+           data = closure_dist_CA_std,
            REML = F)
 summary(m7)
 ```
