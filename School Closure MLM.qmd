@@ -474,7 +474,7 @@ closure_dist_CA |>
 
 ### Time
 
-```{r fit}
+```{r fit-time}
 mlfit <- lm(num_closed ~ year, 
             data = closure_dist_CA)
 mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
@@ -487,69 +487,108 @@ summary(mqfit)
 summary(mdfit)
 ```
 
-```{r test}
+```{r test-time}
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit)
 ```
 
 ### Percentage of District Enrollment
 
-```{r fit}
+```{r fit-pct-dist-enrollment}
 mlfit <- lm(num_closed ~ as.numeric(avg_schl_pct_dist_enroll), 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
             data = closure_dist_CA)
 mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) # time dummies
+            data = closure_dist_CA) 
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
+```
+
+```{r test-pct-dist-enrollment}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit)
+```
+
+### District Student-Teacher Ratio
+
+```{r fit-st-ratio}
+mlfit <- lm(num_closed ~ as.numeric(st_ratio), 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
+            data = closure_dist_CA) 
 
 summary(mlfit)
 summary(mqfit)
 summary(mdfit)
 ```
 
-```{r test}
+```{r test-st-ratio}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit) 
-```
-
-### District Student-Teacher Ratio
-
-```{r fit}
-
-```
-
-```{r test}
-
+anova(mdfit, mlfit)
 ```
 
 ### Average School Student-Teacher Ratio
 
-```{r fit}
+```{r fit-avg-st-ratio}
+mlfit <- lm(num_closed ~ as.numeric(avg_schl_st_ratio), 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
+            data = closure_dist_CA) 
 
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
 ```
 
-```{r test}
-
+```{r test--avg-st-ratio}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit) 
 ```
 
 ### Per-Pupil Expenditure
 
-```{r fit}
+```{r fit-per-pupil-expend}
+mlfit <- lm(num_closed ~ as.numeric(per_pupil_expend), 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
+            data = closure_dist_CA) 
 
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
 ```
 
-```{r test}
-
+```{r test-per-pupil-expend}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit) 
 ```
 
 ### Number of Schools
 
-```{r fit}
+```{r fit-num-schools}
+mlfit <- lm(num_closed ~ as.numeric(num_schools), 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+            data = closure_dist_CA)
+mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
+            data = closure_dist_CA) 
 
+summary(mlfit)
+summary(mqfit)
+summary(mdfit)
 ```
 
-```{r test}
-
+```{r test-num-schools}
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit) 
 ```
 
 ### Conclusions
@@ -581,8 +620,115 @@ closure_dist_CA <- closure_dist_CA |>
 
 ## Step 1: Base Model with Time Predictor
 
-## Step 2: ???
+```{r base-model-time}
+m1 <- lm(num_closed ~ year ,  data = closure_dist_CA)
+summary(m1)
+```
 
-## Step 3: A model with a level 1 predictor
+```{r model-random-intercept}
+m2 <- lmer(num_closed ~ year + (1 | agency_id) ,  data = closure_dist_CA, REML = F)
+summary(m2)
+```
+
+```{r compare-models-m1-m2}
+anova(m2, m1)
+```
+
+```{r icc}
+icc(m2)
+```
+
+## Step 2: Model with time-varying predictors
+
+```{r model-time-varying}
+m3 <- lmer(num_closed ~ year
+           + avg_schl_pct_dist_enroll
+           + avg_schl_st_ratio
+           + (1 | agency_id),
+           data = closure_dist_CA,
+           REML = F)
+summary(m3)
+```
+
+```{r compare-m2-m3}
+anova(m3, m2)
+```
+
+## Step 3: A model with time invariant predictors
+
+```{r model-time-invariant}
+m4 <- lmer(num_closed ~ year
+           + avg_schl_pct_dist_enroll
+           + avg_schl_st_ratio
+           + per_pupil_expend
+           + st_ratio
+           + num_schools
+           + (1 | agency_id),
+           data = closure_dist_CA,
+           REML = F)
+summary(m4)
+```
+
+```{r}
+anova(m4, m3)
+```
 
 ## Step 4 a model with level 2 predictors
+
+```{r model-random-slopes}
+m5 <- lmer(num_closed ~ year
+           + avg_schl_pct_dist_enroll
+           + avg_schl_st_ratio
+           + per_pupil_expend
+           + st_ratio
+           + num_schools
+           + (1 | agency_id)
+           + (0 + year | agency_id),
+           data = closure_dist_CA,
+           REML = F)
+summary(m5)
+
+```
+
+```{r}
+anova(m5, m4)
+```
+
+## A model with covariance
+
+```{r model-covariance}
+m6 <- lmer(num_closed ~ year
+           + avg_schl_pct_dist_enroll
+           + avg_schl_st_ratio
+           + per_pupil_expend
+           + st_ratio
+           + num_schools
+           + (1 + year | agency_id),
+           data = closure_dist_CA,
+           REML = F)
+summary(m6)
+```
+
+```{r}
+anova(m6, m5)
+```
+
+## A model with cross level interactions
+
+```{r cross-level-interactions}
+m7 <- lmer(num_closed ~ year
+           + avg_schl_pct_dist_enroll
+           + avg_schl_st_ratio
+           + per_pupil_expend
+           + st_ratio
+           + num_schools
+           + I(per_pupil_expend*avg_schl_st_ratio)
+           + (1 + year | agency_id),
+           data = closure_dist_CA,
+           REML = F)
+summary(m7)
+```
+
+```{r}
+anova(m7, m6)
+```
