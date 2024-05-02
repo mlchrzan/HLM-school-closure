@@ -335,8 +335,11 @@ bind_rows(
 
 
 closure_dist_CA |> 
+  summarize(n = n_distinct(agency_id))
+
+closure_dist_CA |> 
   group_by(location_type) |> 
-  summarize(n = n()) |> 
+  summarize(n = n_distinct(agency_id)) |> 
   ungroup()
 ```
 
@@ -353,25 +356,25 @@ closure_dist_CA |>
                 color = "Number of Schools Closed"), 
             linewidth = 2) +
   geom_line(aes(x = year, 
-                y = num_schools / 100, 
+                y = num_schools / 50, 
                 color = "Total Number of Schools"), 
             linewidth = 2) +
   scale_y_continuous(
-    sec.axis = sec_axis(~ . * 100, 
+    sec.axis = sec_axis(~ . * 50, 
                         name = "Number of Schools")) +
   annotate("text", 
            x = 2003, 
-           y = 15, 
+           y = 8, 
            label = "Closed Schools", 
            vjust = -0.5, hjust = 1, 
-           color = 'blue4') +  # Add label for closed schools
+           color = 'red4') +  # Add label for closed schools
   annotate("text", 
            x = 2003, 
-           y = 8000 / 100,  
+           y = 8000 / 50,  
            label = "Total Schools", 
            vjust = 1, hjust = 1, 
-           color = 'red4') +  # Add label for total schools
-  scale_color_manual(values = c('blue4', 'red4')) +
+           color = 'blue4') +  # Add label for total schools
+  scale_color_manual(values = c('red4', 'blue4')) +
   labs(title = "Trends for Schools Closed and Number of Schools",
        y = "Number of Closed Schools",
        x = "Year",
@@ -381,6 +384,31 @@ closure_dist_CA |>
 ```
 
 ```{r viz-closures-by-locale}
+#Percentage of Districts Closing Schools
+closure_dist_CA |> 
+  mutate(clsd = if_else(num_closed > 0, 1, 0)) |> 
+  group_by(year, location_type) |> 
+  summarize(num_dist = n(), 
+            pct_dists_w_cl = sum(clsd)/num_dist,
+            .groups = 'keep') |> 
+  ungroup() |> 
+  filter(!is.na(location_type)) |> 
+  ggplot(aes(x = year, 
+             y = pct_dists_w_cl)) + 
+  geom_line(linewidth = 2, 
+            color = 'red4') + 
+  geom_point(size = 3, 
+             color = 'red4') +
+  facet_grid(~location_type) +
+  theme_minimal() + 
+  labs(color = "Locale", 
+       title = "Larger Percentage of Urban Districts Face Closures in California", 
+       x = "Year", 
+       y = "Percentage of Districts Closing Schools") + 
+  theme(legend.position = 'none') 
+
+
+#Number of Closures
 closure_dist_CA |> 
   group_by(year, location_type) |> 
   summarize(num_schools = sum(num_schools), 
@@ -389,12 +417,25 @@ closure_dist_CA |>
             .groups = 'keep') |> 
   ungroup() |> 
   ggplot(aes(x = year, 
-             y = num_closed)) + 
+             y = num_closed, 
+             color = forcats::fct_reorder(location_type, num_closed))) + 
   geom_line(linewidth = 2) +
-  facet_wrap(~location_type, ncol = 1)
+  geom_point(size = 3) +
+  theme_minimal() + 
+  scale_color_manual(values = c("red3", 'red', 'green4')) +
+  labs(title = 'School Closures by District Locale',
+       subtitle = 'In California, Suburban and Urban Districts Have Faced the Most Closures',
+       x = 'Year',
+       y = 'Number of Schools Closed',
+       color = "Locale") + 
+  facet_grid(~location_type) + 
+  theme(legend.position = 'none')
+
+
 ```
 
 ```{r viz-var-summary-over-time}
+#Means and SDs
 left_join(
   closure_dist_CA |> 
     group_by(year) |> 
@@ -413,6 +454,144 @@ left_join(
              y = value)) + 
   geom_line() + 
   facet_wrap(~variable, scales = 'free', ncol = 2)
+
+#All Variables
+closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric) & (starts_with('avg_') | contains('ratio')), 
+                                          ~mean(., na.rm = T)), 
+              across(where(is.numeric), ~sum(., na.rm = T))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  ggplot(aes(x = year, 
+             y = value, 
+             color = variable)) + 
+  geom_line(linewidth = 1.5) + 
+  facet_wrap(~variable, scales = 'free', ncol = 1) + 
+  theme_minimal() +
+  labs(title = 'Predictor Variable Trends', 
+       x = 'Year', 
+       y = 'Value') +
+  theme(legend.position = 'none')
+
+##PARTITIONED BY SCALES
+#Values 0-100
+closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric) & (starts_with('avg_') | contains('ratio')), 
+                                          ~mean(., na.rm = T)), 
+              across(where(is.numeric), ~sum(., na.rm = T))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  filter(value < 100) |> 
+  mutate(value = if_else(variable == 'avg_schl_pct_dist_enroll', 
+                         value * 100, 
+                         value)) |> 
+  ggplot(aes(x = year, 
+             y = value, 
+             color = variable)) + 
+  geom_line()
+
+#Values over 1000
+closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric) & (starts_with('avg_') | contains('ratio')), 
+                                          ~mean(., na.rm = T)), 
+              across(where(is.numeric), ~sum(., na.rm = T))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  filter(value > 100) |> 
+  mutate(value = if_else(variable == 'per_pupil_expend', 
+                         value / 1000, 
+                         value)) |> 
+  ggplot(aes(x = year, 
+             y = value, 
+             color = variable)) + 
+  geom_line()
+```
+
+```{r viz-school-count-vs-diverse}
+#Num Schools vs Num More Diverse
+closure_dist_CA |> 
+    group_by(year) |> 
+    summarise(across(where(is.numeric) & (starts_with('avg_') | contains('ratio')), 
+                                          ~mean(., na.rm = T)), 
+              across(where(is.numeric), ~sum(., na.rm = T))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year, 
+               names_to = "variable", 
+               values_to = 'value') |> 
+  filter(value > 100 & variable != "per_pupil_expend") |> 
+  ggplot(aes(x = year, 
+             y = value, 
+             color = variable)) + 
+  geom_line(linewidth = 2) + 
+  theme_minimal() +
+  annotate("text", 
+           x = 2004, 
+           y = 1200, 
+           label = "Schools More Diverse\nThan the District", 
+           vjust = -0.5, hjust = 1, 
+           color = 'red4') +  # Add label for closed schools
+  annotate("text", 
+           x = 2003, 
+           y =7000,  
+           label = "Total Schools", 
+           vjust = 1, hjust = 1, 
+           color = 'green4') +  # Add label for total schools
+  scale_color_manual(values = c('red4', 'green4')) +
+  labs(title = "Trends for Schools Closed and Number of Schools More Diverse Than District",
+       y = "Number of Schools",
+       x = "Year",
+       color = "Scale") +
+  theme_minimal() + 
+  theme(legend.position = 'none')
+
+
+closure_dist_CA |> 
+  group_by(year) |> 
+  summarize(num_dists = n_distinct(agency_id),
+            num_schools = sum(num_schools),
+            num_closed = sum(num_closed), 
+            num_diverse = sum(num_schl_more_diverse)) |> 
+  ungroup() |> 
+  ggplot() +
+  geom_line(aes(x = year, 
+                y = num_closed, 
+                color = "Number of Schools Closed"), 
+            linewidth = 2) +
+  geom_line(aes(x = year, 
+                y = num_diverse / 10, 
+                color = "Number of Schools More Diverse"), 
+            linewidth = 2) +
+  scale_y_continuous(
+    sec.axis = sec_axis(~ . * 10, 
+                        name = "Number of Schools More Diverse")) +
+  annotate("text", 
+           x = 2003, 
+           y = 50, 
+           label = "Closed Schools", 
+           vjust = -0.5, hjust = 1, 
+           color = 'red4') +  # Add label for closed schools
+  annotate("text", 
+           x = 2004, 
+           y = 3000 / 10,  
+           label = "Schools More Diverse", 
+           vjust = 1, hjust = 1, 
+           color = 'green4') +  # Add label for total schools
+  scale_color_manual(values = c('red4', 'green4')) +
+  labs(title = "Trends for Schools Closed and Number of Schools More Diverse",
+       y = "Number of Closed Schools",
+       x = "Year",
+       color = "Scale") +
+  theme_minimal() + 
+  theme(legend.position = 'none')
 ```
 
 ```{r select-vars-and-remove-NAs}
@@ -596,120 +775,130 @@ mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), # quadratic effect
 mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
             data = closure_dist_CA) # time dummies
 
-summary(mlfit)
-summary(mqfit)
-summary(mdfit)
+# summary(mlfit)
+# summary(mqfit)
+# summary(mdfit)
 ```
 
 ```{r test-time}
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit)
+anova(mqfit, mdfit)
+
+# Year should be quadratic
 ```
 
 ### Percentage of District Enrollment
 
 ```{r fit-pct-dist-enrollment}
-mlfit <- lm(num_closed ~ as.numeric(avg_schl_pct_dist_enroll), 
+mlfit <- lm(num_closed ~ avg_schl_pct_dist_enroll, 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+mqfit <- lm(num_closed ~ poly(avg_schl_pct_dist_enroll, 2), 
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) 
-summary(mlfit)
-summary(mqfit)
-summary(mdfit)
+
+# summary(mlfit)
+# summary(mqfit)
 ```
 
 ```{r test-pct-dist-enrollment}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit)
 ```
 
 ### District Student-Teacher Ratio
 
 ```{r fit-st-ratio}
-mlfit <- lm(num_closed ~ as.numeric(st_ratio), 
+mlfit <- lm(num_closed ~ st_ratio, 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+mqfit <- lm(num_closed ~ poly(st_ratio, 2), 
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) 
 
-summary(mlfit)
-summary(mqfit)
-summary(mdfit)
+# summary(mlfit)
+# summary(mqfit)
 ```
 
 ```{r test-st-ratio}
-anova(mqfit, mlfit) 
-anova(mdfit, mlfit)
+anova(mqfit, mlfit)
 ```
 
 ### Average School Student-Teacher Ratio
 
 ```{r fit-avg-st-ratio}
-mlfit <- lm(num_closed ~ as.numeric(avg_schl_st_ratio), 
+mlfit <- lm(num_closed ~ avg_schl_st_ratio, 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+mqfit <- lm(num_closed ~ poly(avg_schl_st_ratio, 2), 
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) 
 
-summary(mlfit)
-summary(mqfit)
-summary(mdfit)
+# summary(mlfit)
+# summary(mqfit)
+
+# Doesn't show significance
 ```
 
 ```{r test--avg-st-ratio}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit) 
 ```
 
 ### Per-Pupil Expenditure
 
 ```{r fit-per-pupil-expend}
-mlfit <- lm(num_closed ~ as.numeric(per_pupil_expend), 
+mlfit <- lm(num_closed ~ per_pupil_expend, 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+mqfit <- lm(num_closed ~ poly(per_pupil_expend, 2), 
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) 
 
 summary(mlfit)
 summary(mqfit)
-summary(mdfit)
+
+#Doesn't show significance
 ```
 
 ```{r test-per-pupil-expend}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit) 
 ```
 
 ### Number of Schools
 
 ```{r fit-num-schools}
-mlfit <- lm(num_closed ~ as.numeric(num_schools), 
+mlfit <- lm(num_closed ~ num_schools, 
             data = closure_dist_CA)
-mqfit <- lm(num_closed ~ poly(as.numeric(year), 2), 
+mqfit <- lm(num_closed ~ poly(num_schools, 2), 
             data = closure_dist_CA)
-mdfit <- lm(num_closed ~ as.factor(closure_dist_CA$year), 
-            data = closure_dist_CA) 
 
-summary(mlfit)
-summary(mqfit)
-summary(mdfit)
+# summary(mlfit)
+# summary(mqfit)
 ```
 
 ```{r test-num-schools}
 anova(mqfit, mlfit) 
-anova(mdfit, mlfit) 
 ```
 
-### Conclusions
+### Location Type
 
--   Time should be quadratic
+```{r fit-location-type}
+mlfit <- lm(num_closed ~ location_type, 
+            data = closure_dist_CA)
+mqfit <- lm(num_closed ~ poly(location_type, 2), 
+            data = closure_dist_CA)
 
--   Percentage of District Enrollment should be linear
+summary(mlfit)
+summary(mqfit)
+```
+
+```{r test-num-schools}
+anova(mqfit, mlfit) 
+```
+
+### Variables Determined to fit Quadratically
+
+-   Time
+
+-   Number of Schools
+
+-   avg_schl_pct_dist_enroll
+
+```{r conserve-space}
+rm(mlfit, mqfit)
+```
 
 ## Build and Test Models
 
@@ -735,12 +924,16 @@ closure_dist_CA_std <- closure_dist_CA |>
 ## Step 1: Base Model with Time Predictor
 
 ```{r base-model-time}
-m1 <- lm(num_closed ~ year ,  data = closure_dist_CA_std)
+m1 <- lm(num_closed ~ year ,  
+         data = closure_dist_CA_std)
 summary(m1)
 ```
 
 ```{r model-random-intercept}
-m2 <- lmer(num_closed ~ year + (1 | agency_id) ,  data = closure_dist_CA_std, REML = F)
+m2 <- lmer(num_closed ~ year + (1 | agency_id) ,  
+           data = closure_dist_CA_std, 
+           REML = F)
+
 summary(m2)
 ```
 
@@ -755,12 +948,17 @@ icc(m2)
 ## Step 2: Model with time-varying predictors
 
 ```{r model-time-varying}
-m3 <- lmer(num_closed ~ year
-           + avg_schl_pct_dist_enroll
-           + avg_schl_st_ratio
+m3 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
+           + per_pupil_expend
+           + st_ratio
+           + I(num_schools*num_schools)
            + (1 | agency_id),
            data = closure_dist_CA_std,
            REML = F)
+
 summary(m3)
 ```
 
@@ -768,81 +966,288 @@ summary(m3)
 anova(m3, m2)
 ```
 
-## Step 3: A model with time invariant predictors
+## Step 3: A model with time invariant predictors - WE DON'T HAVE THESE
 
 ```{r model-time-invariant}
-m4 <- lmer(num_closed ~ year
-           + avg_schl_pct_dist_enroll
-           + avg_schl_st_ratio
-           + per_pupil_expend
-           + st_ratio
-           + num_schools
-           + (1 | agency_id),
-           data = closure_dist_CA_std,
-           REML = F)
-summary(m4)
+# m4 <- lmer(num_closed ~ 
+#              poly(year, 2)
+#            + poly(avg_schl_pct_dist_enroll, 2)
+#            + avg_schl_st_ratio 
+#            + per_pupil_expend
+#            + st_ratio
+#            + poly(num_schools, 2) 
+#            + location_type
+#            + (1 | agency_id),
+#            data = closure_dist_CA_std,
+#            REML = F)
+# 
+# summary(m4)
 ```
 
-```{r}
-anova(m4, m3)
+```{r compare-m3-m4}
+# anova(m4, m3)
 ```
 
 ## Step 4 a model with level 2 predictors
 
 ```{r model-random-slopes}
-m5 <- lmer(num_closed ~ year
-           + avg_schl_pct_dist_enroll
-           + avg_schl_st_ratio
+m5 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
            + per_pupil_expend
            + st_ratio
-           + num_schools
-           + (1 | agency_id)
-           + (0 + year | agency_id),
+           + I(num_schools*num_schools)
+           + location_type
+           + (1 | agency_id),
            data = closure_dist_CA_std,
            REML = F)
 summary(m5)
-
 ```
 
-```{r}
+```{r compare-m4-m5}
 anova(m5, m4)
 ```
 
 ## A model with covariance
 
 ```{r model-covariance}
-m6 <- lmer(num_closed ~ year
-           + avg_schl_pct_dist_enroll
-           + avg_schl_st_ratio
+m6 <- lmer(num_closed ~              
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
            + per_pupil_expend
            + st_ratio
-           + num_schools
+           + I(num_schools*num_schools)
+           + location_type
            + (1 + year | agency_id),
            data = closure_dist_CA_std,
            REML = F)
+
 summary(m6)
 ```
 
-```{r}
+```{r compare-m5-m6}
 anova(m6, m5)
 ```
 
 ## A model with cross level interactions
 
+#### This doesn't appear to be working for interactions with location_type (the only level 2 variable we have)
+
 ```{r cross-level-interactions}
-m7 <- lmer(num_closed ~ year
-           + avg_schl_pct_dist_enroll
-           + avg_schl_st_ratio
+m7 <- lmer(num_closed ~              
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
            + per_pupil_expend
            + st_ratio
-           + num_schools
-           + I(per_pupil_expend*avg_schl_st_ratio)
+           + I(num_schools*num_schools)
+           + location_type
+           + I(per_pupil_expend * avg_schl_st_ratio)
            + (1 + year | agency_id),
            data = closure_dist_CA_std,
            REML = F)
 summary(m7)
 ```
 
-```{r}
+```{r compare-m6-m7}
 anova(m7, m6)
 ```
+
+## A model with random slopes
+
+```{r random-slopes}
+m8 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
+           + per_pupil_expend
+           + st_ratio
+           + I(num_schools*num_schools)
+           + location_type
+           + (1 + year + location_type | agency_id),
+           data = closure_dist_CA_std,
+           REML = F)
+
+summary(m8)
+```
+
+```{r compare-m6-m8}
+anova(m8, m6)
+```
+
+```{r check-REML}
+m9 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
+           + per_pupil_expend
+           + st_ratio
+           + I(num_schools*num_schools)
+           + location_type
+           + (1 + year + location_type | agency_id),
+           data = closure_dist_CA_std,
+           REML = T)
+summary(m8)
+summary(m9)
+```
+
+# Variance Explained
+
+Calculate the total variance explained for our final model
+
+# Check error plots of model - COPIED FROM LAB
+
+```{r residual-errors}
+closure_dist_CA_std$r_std <- scale(resid(m8))
+qqnorm(closure_dist_CA_std$r_std, pch = 1)
+qqline(closure_dist_CA_std$r_std, col = "red")
+```
+
+????
+
+```{r residual-errors-predicted-attitudes}
+closure_dist_CA_std <- mutate(closure_dist_CA_std, 
+                              num_closed_hat_ml = fitted(m8))
+
+ggplot(closure_dist_CA_std, 
+       aes(x = attitude_hat_ml, 
+           y = r_std)) +
+  geom_point() +
+  xlab("Predicted number of closures") +
+  ylab("Standardized residuals") + 
+  geom_hline(yintercept = 0, color = "red")
+```
+
+?????
+
+```{r random-intercept-errors}
+# Need to find a way to add these back to the tibble
+u <- as_tibble(as.data.frame(ranef(m6)[1])) |>
+  rename(u2 = agency_id..Intercept., u1 = agency_id.year) |>
+  mutate(agency_id =  as_factor(1:1017)) |>
+  inner_join(closure_dist_CA_std)
+
+ggplot(u, 
+       aes(x = num_closed_hat_ml, 
+           y = u2)) +
+  geom_point() +
+  xlab("Predicted number of closures") +
+  ylab("Intercept") + 
+  geom_hline(yintercept = 0, color = "red")
+```
+
+????
+
+```{r random-slope-errors}
+ggplot(u, aes(x = num_closed_hat_ml, y = u1)) +
+  geom_point() +
+  xlab("Predicted attitudes") +
+  ylab("Slope") + 
+  geom_hline(yintercept = 0, color = "red")
+```
+
+???
+
+```{r caterpillar-plots}
+u_condvar <- ranef(m8, condVar = TRUE)
+varcovar <- attr(u_condvar$id, "postVar")
+myplots <- list()
+
+# for each random effect
+for (i in 1:length(u_condvar$id)) {
+  # select the random parameter value
+  myu <- u_condvar$id[i]
+  names(myu) <- "myu"
+  # select the variance, take the square root to get the standard error
+  myu_se <- apply(varcovar, 3, function(x) sqrt(x[i,i]))   
+  # combine them and arrange my myu and add a rank
+  u_se <- as_tibble(cbind(myu, myu_se)) |>
+    arrange(myu) |>
+    mutate(rank = 1:237)
+  # and store the plots in a list with two elements
+  myylabs <- c("Intercept", "Slope")
+  myplots[[i]] <- ggplot(u_se, aes(x = rank, y = myu)) +
+    geom_errorbar(aes(ymin = myu - (myu_se * 1.39), 
+                      ymax = myu + (myu_se * 1.39))) + 
+    geom_point() +
+    geom_hline(yintercept = 0, color = "red") +
+    ylab(myylabs[i]) +
+    xlab("Rank")
+}    
+
+
+myplots[[1]]
+myplots[[2]]   
+
+```
+
+?????
+
+Check error plots of final model
+
+```{r error-plots-m10}
+closure_dist_CA_std$r_std <- scale(resid(m8))
+qqnorm(closure_dist_CA_std$r_std, pch = 1)
+qqline(closure_dist_CA_std$r_std, col = "red")
+
+attitudes <- mutate(attitudes, attitude_hat_ml = fitted(m7))
+ggplot(attitudes, aes(x = attitude_hat_ml, y = r_std)) +
+  geom_point() +
+  xlab("Predicted attitudes") +
+  ylab("Standardized residuals") + 
+  geom_hline(yintercept = 0, color = "red")
+
+u <- as_tibble(as.data.frame(ranef(m10)[1])) |>
+  rename(u2 = id..Intercept., 
+         u1_time = id.time_r, 
+         u1_exposure = id.exposure_c) |>
+  mutate(id =  1:237) |>
+  inner_join(attitudes)
+
+ggplot(u, aes(x = attitude_hat_ml, y = u2)) +
+  geom_point() +
+  xlab("Predicted attitudes") +
+  ylab("Intercept") + 
+  geom_hline(yintercept = 0, color = "red")
+
+
+ggplot(u, aes(x = attitude_hat_ml, y = u1_time)) +
+  geom_point() +
+  xlab("Predicted attitudes") +
+  ylab("Slope time") + 
+  geom_hline(yintercept = 0, color = "red")
+
+ggplot(u, aes(x = attitude_hat_ml, y = u1_exposure)) +
+  geom_point() +
+  xlab("Predicted attitudes") +
+  ylab("Slope exposure") + 
+  geom_hline(yintercept = 0, color = "red")
+
+```
+
+Compared to model 7, model 10 does not improve the normality of the residual errors. In this case, my final model would be m7. Although inspecting the errors show that there are some patterns in the data that look structural, the additional effects hardly improved the model and in one case even resulted in convergence issues.
+
+Check if results are similar with REML
+
+```{r REML}
+m12 <- lmer(attitude ~ time_r 
+            + exposure_c 
+            + I(exposure_c^2) 
+            + income_c 
+            + female 
+            + minority 
+            + I(female*time_r) 
+            + (1 + time_r | id), 
+            data = attitudes, 
+            REML = T)
+summary(m7)
+summary(m12)
+```
+
+The results of ML and REML are comparable
+
+A regular longitudinal multilevel model assumes compound symmetry, which means that residual variance on the time level will only have one variance and covariance 0. With time points, however, it is plausible that this assumption does not hold. For example, time points closer together might correlate more than time points further away because of memory effects. This is called autocorrelation. A Toeplitz matrix covariance structure is a special case of a simplex covariance structure. Instead of compound symmetry or a completely unstructured covariance structure, the Toeplitz assumes that each time lag has its own autocorrelation so that timepoints closer together have a higher covariance than time points further away.
+
+lme4 does not have a lot of options for complex covariance structures and so if you really want to add more complex covariance structures you would have to use the [***nlme package***]{.underline}. If you are solely interested in the fixed effects, you wouldn't really need to use a complex covariance structure as fixed effects are rarely affected by it. Says Hox.
