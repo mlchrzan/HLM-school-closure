@@ -21,7 +21,11 @@ library(plotly)
 library(naniar)
 library(caret) #for up and down sampling
 library(beepr) #for noises to alert when code is done running!
+<<<<<<< HEAD
 library(JWileymisc) #for winsorizor()
+=======
+library(sjPlot)
+>>>>>>> c43827604ae7212627fbaa8bd75e26e147710959
 ```
 
 ```{r load-data, message=FALSE}
@@ -1004,7 +1008,7 @@ summary(m5)
 ```
 
 ```{r compare-m4-m5}
-anova(m5, m4)
+anova(m5, m3)
 ```
 
 ## A model with covariance
@@ -1069,6 +1073,9 @@ m8 <- lmer(num_closed ~
            REML = F)
 
 summary(m8)
+tab_model( m2, m3, m5, m6, m8,
+           dv.labels = c('with Random Intercept', "with time-varying predictors", "with level 2 predictors", "with covariance", "with random slopes"),
+           show.ci = FALSE)
 ```
 
 ```{r compare-m5andm6-m8}
@@ -1116,7 +1123,7 @@ closure_dist_CA_std <- mutate(closure_dist_CA_std,
                               num_closed_hat_ml = fitted(m8))
 
 ggplot(closure_dist_CA_std, 
-       aes(x = attitude_hat_ml, 
+       aes(x = num_closed_hat_ml, 
            y = r_std)) +
   geom_point() +
   xlab("Predicted number of closures") +
