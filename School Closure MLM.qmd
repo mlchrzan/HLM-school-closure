@@ -7,7 +7,7 @@ editor: visual
 
 # Setup
 
-```{r libraries, message=FALSE}
+```{r libraries, message=FALSE, warning=FALSE}
 library(tidyverse)
 library(lme4)
 library(lmerTest)
@@ -15,13 +15,13 @@ library(performance)
 library(lattice)
 library(here)
 library(janitor) #for clean_names()
-library(DescTools) #for Winsorize()
 library(GGally) #for correlation matrix
 library(corrplot) #for correlation matrix
 library(plotly)
 library(naniar)
 library(caret) #for up and down sampling
 library(beepr) #for noises to alert when code is done running!
+library(JWileymisc) #for winsorizor()
 ```
 
 ```{r load-data, message=FALSE}
@@ -129,19 +129,17 @@ closure <- closure |>
   ungroup() |> 
   dplyr::select(-most_common_location)
 
-  
+
 
 #Correct Percentages/Ratios
   #maxval's chosen based on distributions
-closure$st_ratio <- Winsorize(closure$st_ratio, 
-                              minval = 1,
-                              maxval = 51, 
-                              na.rm = TRUE)
+closure$st_ratio <- winsorizor(closure$st_ratio, 
+                               percentile = c(0.05, 0.95), 
+                               na.rm = TRUE)
 
-closure$dist_st_ratio <- Winsorize(closure$dist_st_ratio, 
-                                   minval = 1,
-                                   maxval = 33,
-                                   na.rm = TRUE)
+closure$dist_st_ratio <- winsorizor(closure$dist_st_ratio, 
+                                    percentile = c(0.05, 0.95), 
+                                    na.rm = TRUE)
 
   #all percentages higher than 100 capped to 100
 closure <- closure |>  
@@ -1073,14 +1071,16 @@ m8 <- lmer(num_closed ~
 summary(m8)
 ```
 
-```{r compare-m6-m8}
+```{r compare-m5andm6-m8}
+anova(m8, m7)
 anova(m8, m6)
+anova(m8, m5)
 ```
 
 ```{r check-REML}
 m9 <- lmer(num_closed ~ 
              I(year*year)
-           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           #+ I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
            + avg_schl_st_ratio 
            + per_pupil_expend
            + st_ratio
@@ -1096,6 +1096,10 @@ summary(m9)
 # Variance Explained
 
 Calculate the total variance explained for our final model
+
+```{r}
+
+```
 
 # Check error plots of model - COPIED FROM LAB
 
