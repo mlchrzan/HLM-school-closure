@@ -1,0 +1,643 @@
+---
+title: "Closure Based on Diversity"
+author: "mlc"
+format: html
+editor: visual
+---
+
+# Setup
+
+```{r libraries, message=FALSE, warning=FALSE}
+library(tidyverse)
+library(lme4)
+library(lmerTest)
+library(performance)
+library(lattice)
+library(here)
+library(janitor) #for clean_names()
+library(GGally) #for correlation matrix
+library(corrplot) #for correlation matrix
+library(plotly)
+library(naniar)
+library(caret) #for up and down sampling
+library(beepr) #for noises to alert when code is done running!
+library(JWileymisc) #for winsorizor()
+library(sjPlot)
+```
+
+```{r load-data, message=FALSE}
+closure <- read_csv("school_district_theil_index.csv")
+district_states <- read_csv("district_state_info.csv", skip = 6)
+district_states <- clean_names(district_states)
+
+district_states <- district_states |> 
+  rename(agency_id = starts_with("agency_id"), 
+         dist_state_name = starts_with('state_name'),
+         dist_state_abbr = starts_with('state_abbr')) |> 
+  mutate(agency_id = as.numeric(agency_id), 
+         dist_state_abbr = as.factor(dist_state_abbr), 
+         dist_state_name = as.factor(dist_state_name))
+
+closure <- left_join(closure, 
+                     district_states, 
+                     by = join_by(agency_id))
+rm(district_states)
+
+closure <- closure |> 
+  dplyr::select(agency_id, 
+                school_id, 
+                year, 
+                school_name, 
+                dist_state_name, 
+                dist_state_abbr, 
+                everything())
+```
+
+```{r initial-set-up}
+closure <- closure |> 
+  mutate(school_level = if_else(school_level == 5 | school_level ==6, 4, school_level)) 
+
+#Recreate location type from dummy variables, including NA's where appropriate
+location_known <- closure |> 
+  pivot_longer(cols = c(urban, suburban, rural), 
+               names_to = "location_type") |> 
+  mutate(location_type = if_else(value == 0, NA, location_type)) |>
+  filter(value == 1) |>
+  dplyr::select(-value)
+  
+rows_without_location <- closure |> 
+  pivot_longer(cols = c(urban, suburban, rural), 
+               names_to = "location_type") |> 
+  mutate(location_type = if_else(value == 0, NA, location_type)) |>
+  distinct() |> 
+  filter(value == 0) |>
+  dplyr::select(-value) 
+
+location_unknown <- anti_join(rows_without_location, location_known, 
+                              by = join_by(school_id, year))
+
+closure <- bind_rows(location_known, location_unknown) 
+rm(location_known, location_unknown, rows_without_location)
+
+
+
+#Remove persisting rows for schools after they close
+closure <- closure |> 
+  #Find year school closed
+  group_by(school_id, year) |> 
+  filter(closed == 1) |> 
+  summarize(year_closed = year, 
+            .groups = 'keep') |> 
+  ungroup() |> 
+  dplyr::select(-year) |> 
+  #Filter to only include years less than or equal to that year for each school
+  right_join(closure) |> 
+  mutate(year_closed = if_else(is.na(year_closed), 
+                               as.numeric(format(Sys.Date(), "%Y")), 
+                               year_closed)) |> 
+  filter(year <= year_closed) |> 
+  dplyr::select(year_closed, agency_id, school_id, school_name, year, closed, everything()) |> 
+  dplyr::select(-year_closed, -agency_name)
+
+
+#Create factors
+closure <- closure |> 
+  mutate(school_id = factor(school_id, levels = unique(school_id)), 
+         agency_id = factor(agency_id, levels = unique(agency_id)), 
+         #year = factor(year, levels = unique(year)),
+         #closed = factor(closed, levels = unique(closed)),
+         school_level = factor(school_level, levels = unique(school_level)), 
+         charter = factor(charter, levels = unique(charter)), 
+         magnet = factor(magnet, levels = unique(magnet)), 
+         title1 = factor(title1, levels = unique(title1)), 
+         location_type = factor(location_type, levels = unique(location_type)))
+```
+
+```{r cleaning-variables}
+#Correct Location Types
+
+#Create Mode function to find the most common value that is not NA
+Mode <- function(x, na.rm = FALSE) {
+  if(na.rm){
+    x = x[!is.na(x)]
+  }
+
+  ux <- unique(x)
+  return(ux[which.max(tabulate(match(x, ux)))])
+}
+
+closure <- closure |> 
+  group_by(school_id) |> 
+  mutate(most_common_location = Mode(location_type, na.rm = TRUE)) |> 
+  mutate(location_type = most_common_location) |> 
+  ungroup() |> 
+  dplyr::select(-most_common_location)
+
+
+#Correct Percentages/Ratios
+  #maxval's chosen based on distributions
+closure$st_ratio <- winsorizor(closure$st_ratio, 
+                               percentile = c(0.05, 0.95), 
+                               na.rm = TRUE)
+
+closure$dist_st_ratio <- winsorizor(closure$dist_st_ratio, 
+                                    percentile = c(0.05, 0.95), 
+                                    na.rm = TRUE)
+
+  #all percentages higher than 100 capped to 100
+closure <- closure |>  
+  mutate(across((starts_with("dist_pct")), ~if_else(. > 1, 1, .)), 
+         pct_frpl = if_else(pct_frpl > 1, 1, pct_frpl))
+
+
+#Fix districts indicating no students enrollled
+closure <- closure |> 
+  group_by(agency_id, year) |> 
+  mutate(dist_tot_students = if_else(dist_tot_students == 0, 
+                                     sum(tot_students), 
+                                     dist_tot_students), 
+         dist_tot_students = if_else(dist_tot_students == 0, 
+                                    NA, 
+                                    dist_tot_students), 
+         tot_students = if_else(tot_students == 0, 
+                                    NA, 
+                                    tot_students)) |> 
+  ungroup() 
+
+
+#Title1 Categories (Can I get a clean yes/no)
+```
+
+```{r creating-variables}
+#Enrollment Trends
+closure <- closure |> 
+  group_by(school_id) |> 
+  mutate(three_yr_enroll_schl = tot_students - dplyr::lag(tot_students, n = 3), 
+         three_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 3)) |>
+  ungroup()
+
+# What percent of of District Enrollment is at a given school? 
+closure <- closure |> 
+  mutate(pct_dist_enroll = tot_students/dist_tot_students)
+
+# Is the school more diverse than the district? 
+closure <- closure |> 
+  mutate(school_more_diverse = if_else(sch_theil < dist_theil, "Yes", "No"))
+```
+
+```{r aggregate-to-district-level}
+closure_dist <- closure |> 
+  mutate(closed = as.numeric(closed)) |>
+  rename_with(~ gsub("^tot_", "avg_schl_tot_", .x), starts_with("tot_")) |> 
+  rename_with(~ gsub("^pct_", "avg_schl_pct_", .x), starts_with("pct_")) 
+
+closure_dist <- closure_dist |> 
+  group_by(agency_id, year) |> 
+  summarize(num_closed = sum(closed),
+            num_schools = n_distinct(school_id),
+            avg_schl_theil = mean(sch_theil),
+            num_schl_more_diverse = sum(school_more_diverse == 'Yes'),
+            num_level_elem = sum(school_level == 1), 
+            num_level_midd = sum(school_level == 2), 
+            num_level_high = sum(school_level == 3), 
+            num_level_other = sum(school_level == 4), 
+            num_charter = sum(charter == '1-Yes'), 
+            num_magnet = sum(magnet == '1-Yes'), 
+            num_title_1 = sum(title1 == '1-Yes'), 
+            avg_schl_st_ratio = mean(st_ratio), 
+            location_type = Mode(location_type),
+            across(starts_with('avg_schl_tot_'), mean), 
+            across(starts_with('avg_schl_pct_'), mean), 
+            avg_schl_3_yr_enroll_change = mean(three_yr_enroll_schl), 
+            across(starts_with('dist_'), ~ first(.)), 
+            .groups = 'keep') |>
+  ungroup() 
+```
+
+```{r clean-up-closure-dist}
+#Add District Enrollment Trends
+closure_dist <- closure_dist |> 
+  group_by(agency_id) |> 
+  mutate(three_yr_enroll_dist = dist_tot_students - dplyr::lag(dist_tot_students, n = 3)) |>
+  ungroup()
+
+#Arranging Data for Readability
+closure_dist <- closure_dist |> 
+  select(agency_id, year, 
+         dist_state_name, dist_state_abbr, location_type, 
+         num_closed, num_schools, everything()) |> 
+  rename_with(~str_remove(.x, "^dist_"), starts_with("dist_")) 
+
+closure_dist
+```
+
+```{r filter-CA}
+closure_dist_CA_div <- closure_dist |> 
+  filter(state_abbr == "CA")
+
+closure_dist_CA_div
+```
+
+```{r select-vars-and-remove-NAs}
+div_study <- closure_dist_CA_div |> 
+  select(num_closed, agency_id, year, 
+         theil, 
+         avg_schl_theil, 
+         num_schools, 
+         tot_students, 
+         st_ratio, 
+         pct_frpl, 
+         location_type) |>  
+  na.omit()
+
+
+# RQ: Do more diverse districts close more schools?
+## DISTRICT LEVEL
+# location_type
+
+## TIME LEVEL
+# OUTCOME = num_closed
+# theil
+# avg_schl_theil
+
+## CONTROLS
+# num_schools
+# tot_students
+# st_ratio, proxy for financial status
+# pct_frpl, control for low-income
+```
+
+```{r alert-data-is-ready}
+beep(sound = 1) 
+```
+
+# Check Data
+
+```{r check-level}
+div_study |>
+  group_by(year) |>
+  summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE)))
+
+#All numerical variables are time-varying
+```
+
+```{r all-in-one, message=FALSE, warning=FALSE}
+div_study |> 
+  group_by(year) |> 
+  summarize(num_closed = sum(num_closed), 
+            across(where(is.numeric), ~mean(., na.rm = T))) |> 
+  pivot_longer(cols = -num_closed & is.numeric, 
+               names_to = 'variable', 
+               values_to = 'value') |> 
+  ggplot(aes(x = num_closed,
+             y = value)) +
+  geom_point() +
+  geom_smooth(method = "loess", se = F) + # flexible model
+  geom_smooth(method = "lm", se = F, colour = "red") +
+  facet_wrap(~variable, 
+             scales = 'free')
+```
+
+## Test Linearity
+
+```{r test-time}
+mlfit <- lm(num_closed ~ year, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(year, 2), # quadratic effect
+            data = div_study)
+mdfit <- lm(num_closed ~ as.factor(div_study$year), 
+            data = div_study) # time dummies
+
+anova(mqfit, mlfit) 
+anova(mdfit, mlfit)
+anova(mqfit, mdfit)
+
+## QUADRATIC
+```
+
+```{r test-avg_schl_theil}
+mlfit <- lm(num_closed ~ avg_schl_theil, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(avg_schl_theil, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+```
+
+```{r test-theil}
+mlfit <- lm(num_closed ~ theil, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(theil, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+
+# QUADRATIC
+```
+
+```{r test-num_schools}
+mlfit <- lm(num_closed ~ num_schools, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(num_schools, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+
+## QUADRATIC
+```
+
+```{r test-pct_frpl}
+mlfit <- lm(num_closed ~ pct_frpl, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(pct_frpl, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+
+## QUADRATIC
+```
+
+```{r test-st_ratio}
+mlfit <- lm(num_closed ~ st_ratio, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(st_ratio, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+```
+
+```{r test-tot_students}
+mlfit <- lm(num_closed ~ tot_students, 
+            data = div_study)
+mqfit <- lm(num_closed ~ poly(tot_students, 2), # quadratic effect
+            data = div_study)
+
+anova(mqfit, mlfit) 
+
+## QUADRATIC
+```
+
+### Variables Determined to fit Quadratically
+
+-   Time
+
+-   Number of Schools
+
+-   Theil index
+
+-   Free and Reduced Lunch Percentage
+
+-   Total Number of Students
+
+# Build and Test Models
+
+```{r standardize}
+div_study_std <- div_study |> 
+  mutate(across(where(is.numeric) & !year, scale),
+         across(where(is.numeric) & !year, as.vector), 
+         year = year - min(year)) 
+
+div_study_std
+```
+
+## Step 1: Base Model with Time Predictor
+
+Hypothesis: Districts do not close the same number of schools at the start
+
+```{r base-model-time}
+m1_div <- lm(num_closed ~ I(year * year) ,            
+         data = div_study_std) 
+
+summary(m1_div)
+```
+
+```{r model-random-intercept}
+m2_div <- lmer(num_closed ~ I(year * year) + (1 | agency_id),
+           data = div_study_std,     
+           REML = F)  
+
+summary(m2_div)
+```
+
+```{r compare-m1-m2}
+anova(m2_div, m1_div)
+```
+
+```{r icc}
+icc(m2_div)
+```
+
+## Step 2: Model with time-varying predictors
+
+NOTE: Smaller Theil Index =\> More Diverse, Larger Theil Index =\> Less Diverse
+
+Hypothesis:
+
+-   Increases in district Theil indexes over time ***negatively*** relates to number of closures
+
+    -   Given the research that in CA the proportion of black students predicts closures, it would seem if there were less white students there would be less closures
+
+-   Increases in the school Theil indexes over time ***positively*** relates to number of closures
+
+    -   If a school is becoming less diverse, it is less likely to close, given the result discussed in the previous point
+
+-   Increases in the num_schools over time would ***positively*** relate to number of closures
+
+    -   If a district has more schools over time, it may start to strain its budget
+
+-   Increases in the tot_students over time would ***negatively*** relate to number of closures
+
+    -   More students would typically mean more revenue which the district could use to stave off needing to close schools to manage finances, a major consideration listed when closing schools
+
+-   Increased st_ratio over time ***positively*** relates to number of closures
+
+    -   Increased st_ratio would indicate a district being in more financial trouble, so it would make sense that they would wind up closing schools over time
+
+-   Increases in the pct_frpl over time positively relates to number of closures
+
+    -   If a district starts serving more low-income students, the surrounding context of the school is probably one that struggles to support its schools financially
+
+```{r model-time-varying}
+m3_div <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + (1 | agency_id),
+           data = div_study_std,
+           REML = F)
+
+summary(m3_div)
+```
+
+```{r compare-m2-m3}
+anova(m3_div, m2_div)
+```
+
+## *No time invariant predictors, so we skip Step 3*
+
+## Step 4 a model with level 2 predictors
+
+Hypothesis: Non-rural districts close more schools, with urban schools closing more than suburban
+
+```{r model-level-2}
+m4_div <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + location_type
+           + (1 | agency_id),
+           data = div_study_std,
+           REML = F)
+
+summary(m4_div)
+```
+
+```{r compare-m3-m4}
+anova(m4_div, m3_div)
+```
+
+## Step 5: A model with random slopes (NO covariance with random intercepts)
+
+Hypothesis: Number of school's effect on the number of closures will vary by district as districts of different sizes would approach the problems that typical indicate a need to close schools differently (e.g., larger districts may close buildings, but co-locate schools if they have more space)
+
+```{r model-rand-slopes-NO-cov}
+m5_div <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + location_type
+           + (1 | agency_id)
+           + (0 + num_schools | agency_id),
+           data = div_study_std,
+           REML = F)
+
+summary(m5_div)
+```
+
+```{r compare-m4-m5}
+anova(m5_div, m4_div)
+```
+
+## A model with random slopes (and covariance with random intercepts)
+
+```{r model-rand-slopes-cov}
+m6_div <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + location_type
+           + (1 + num_schools | agency_id),
+           data = div_study_std,
+           REML = F)
+
+summary(m6_div)
+
+# Sigularity!
+```
+
+## Step 6: A model with cross-level interaction
+
+Hypothesis: The effect of time differs based on the number of schools. Over time, districts with a larger number of schools will close more of them.
+
+```{r model-cross-lvl-interaction}
+m7_div <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + location_type
+           + (1 | agency_id)
+           + (0 + num_schools | agency_id) 
+           + I(num_schools * year),
+           data = div_study_std,
+           REML = F)
+
+summary(m7_div)
+```
+
+```{r compare-m6-m7}
+anova(m7_div, m6_div)
+
+# DOESN'T HAVE A BETTER FIT, Keep m6
+```
+
+# Inspecting residual plots
+
+```{r qqplot}
+r_std <- scale(resid(m6_div))
+qqnorm(r_std, pch = 1)
+qqline(r_std, col = "#8C1515")
+```
+
+The qqplot shows that the individual level residuals are not normally distributed across their own normal score, mostly at the extremes (indication that the relationship is not linear).
+
+```{r residual-cloud}
+div_study_std <- mutate(div_study_std, num_closed_hat_ml = fitted(m6_div))
+
+ggplot(div_study_std,
+       aes(x = num_closed_hat_ml, 
+           y = r_std)) +
+  geom_point() +
+  xlab("Predicted number closed") +
+  ylab("Standardized residuals") + 
+  geom_hline(yintercept = 0, color = "#8C1515")
+```
+
+Residual plots shows the residuals are not normally distributed across the predicted values of the number of school's closed.
+
+```{r}
+ranef <- as.data.frame(ranef(m6_div)[1]) 
+ranef <- ranef |> 
+  mutate(agency_id = row.names(ranef)) |> 
+  as_tibble()
+
+randomeffects <- ranef |>
+  rename(random_intercept = agency_id..Intercept., 
+         random_slope = agency_id.num_schools) |>
+  inner_join(div_study_std, 
+             by = join_by(agency_id))
+
+
+ggplot(randomeffects, 
+       aes(x = num_closed_hat_ml, 
+           y = random_intercept)) +
+  geom_point() +
+  xlab("Predicted number closed") +
+  ylab("Intercept") + 
+  geom_hline(yintercept = 0, 
+             color = "#8C1515")
+
+
+ggplot(randomeffects, aes(x = num_closed_hat_ml, 
+                          y = random_slope)) +
+  geom_point() +
+  xlab("Predicted number closed") +
+  ylab("Slope") + 
+  geom_hline(yintercept = 0, 
+             color = "#8C1515")
+```
+
+Many outliers, but even for the tighter group in the center, for higher values of num_closed there are more positive values of residuals.
+
+```{r}
+dotplot(ranef(m6_div, condVar = TRUE))
+```

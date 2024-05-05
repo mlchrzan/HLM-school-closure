@@ -1,3 +1,61 @@
+```{r compare-m6-m7}
+anova(m7, m6)
+```
+
+## A model with random slopes
+
+```{r random-slopes}
+m8 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
+           + per_pupil_expend
+           + st_ratio
+           + I(num_schools*num_schools)
+           + location_type
+           + (1 + year + location_type | agency_id),
+           data = closure_dist_CA_std,
+           REML = F)
+
+summary(m8)
+```
+
+```{r compare-m5andm6-m8}
+anova(m8, m7)
+anova(m8, m6)
+anova(m8, m5)
+```
+
+```{r check-REML}
+m9 <- lmer(num_closed ~ 
+             I(year*year)
+           + I(avg_schl_pct_dist_enroll*avg_schl_pct_dist_enroll)
+           + avg_schl_st_ratio 
+           + per_pupil_expend
+           + st_ratio
+           + I(num_schools*num_schools)
+           + location_type
+           + (1 + year + location_type | agency_id),
+           data = closure_dist_CA_std,
+           REML = T)
+summary(m8)
+summary(m9)
+```
+
+```{r generate-result-table}
+tab_model( m2, m3, m5, m6, m8,
+           dv.labels = c('with Random Intercept', 
+                         "with time-varying predictors", 
+                         "with level 2 predictors", 
+                         "with covariance", 
+                         "with random slopes"),
+           show.se = TRUE,
+           show.dev = TRUE,
+           p.style = 'stars',
+           show.ci = FALSE)
+```
+
+
 ```{r make-testing-samples}
 set.seed(1234)
 down_sample <- closure_CA |> 
