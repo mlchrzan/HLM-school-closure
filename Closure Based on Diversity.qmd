@@ -453,7 +453,7 @@ Hypothesis:
 
     -   Increased st_ratio would indicate a district being in more financial trouble, so it would make sense that they would wind up closing schools over time
 
--   Increases in the pct_frpl over time positively relates to number of closures
+-   Increases in the pct_frpl over time ***positively*** relates to number of closures
 
     -   If a district starts serving more low-income students, the surrounding context of the school is probably one that struggles to support its schools financially
 
