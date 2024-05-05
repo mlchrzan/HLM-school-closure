@@ -546,7 +546,7 @@ m6_div <- lmer(num_closed ~
            data = div_study_std,
            REML = F)
 
-summary(m6_div)
+# summary(m6_div)
 
 # Sigularity!
 ```
@@ -575,9 +575,38 @@ summary(m7_div)
 ```
 
 ```{r compare-m6-m7}
-anova(m7_div, m6_div)
+anova(m7_div, m5_div)
+```
 
-# DOESN'T HAVE A BETTER FIT, Keep m6
+## Check with REML (restricted maximum likelihood)
+
+```{r m7-wtih-REML}
+m7_REML <- lmer(num_closed ~ 
+           + I(year * year)
+           + I(theil * theil)
+           + avg_schl_theil
+           + st_ratio
+           + I(num_schools * num_schools)
+           + I(tot_students * tot_students)
+           + I(pct_frpl * pct_frpl)
+           + location_type
+           + (1 | agency_id)
+           + (0 + num_schools | agency_id) 
+           + I(num_schools * year),
+           data = div_study_std,
+           REML = T)
+
+
+# Compare with and without REML
+tab_model(m7_div, m7_REML,
+           dv.labels = c("Non-REML", 
+                         "REML"),
+           show.se = FALSE,
+           show.dev = TRUE,
+           p.style = 'stars',
+           show.ci = FALSE)
+
+# with and without REML produce similar results 
 ```
 
 # Inspecting residual plots
@@ -638,6 +667,61 @@ ggplot(randomeffects, aes(x = num_closed_hat_ml,
 
 Many outliers, but even for the tighter group in the center, for higher values of num_closed there are more positive values of residuals.
 
-```{r}
-dotplot(ranef(m6_div, condVar = TRUE))
+```{r catepillar-plots}
+u_condvar <- ranef(m6_div, condVar = TRUE)
+varcovar <- attr(u_condvar$agency_id, "postVar")
+myplots <- list()
+
+# for each random effect
+for (i in 1:length(u_condvar$agency_id)) {
+  # select the random parameter value
+  myu <- u_condvar$agency_id[i]
+  names(myu) <- "myu"
+  # select the variance, take the square root to get the standard error
+  myu_se <- apply(varcovar, 3, function(x) sqrt(x[i,i]))   
+  # combine them and arrange my myu and add a rank
+  u_se <- as_tibble(cbind(myu, myu_se)) |>
+    arrange(myu) |>
+    mutate(rank = 1:1071)
+  # and store the plots in a list with two elements
+  myylabs <- c("Intercept", "Slope")
+  myplots[[i]] <- ggplot(u_se, aes(x = rank, y = myu)) +
+    geom_errorbar(aes(ymin = myu - (myu_se * 1.39), ymax = myu + (myu_se * 1.39))) + 
+    geom_point() +
+    geom_hline(yintercept = 0, color = "red") +
+    ylab(myylabs[i]) +
+    xlab("Rank") +
+    theme_minimal()
+}    
+
+
+myplots[[1]]
+myplots[[2]] 
+```
+
+Here the districts are sorted in rank order of their residuals around the average intercept. When error bars do not overlap, they will have significantly different residuals (p \< 0.05). It shows us how different the intercepts are across districts.
+
+# Results Table
+
+```{r results-table}
+tab_model(m2_div, m3_div, m4_div, m5_div, m7_div,
+          dv.labels = c('with Random Intercept', 
+                        "with time-varying predictors", 
+                        "with level 2 predictors", 
+                        "with random slope", 
+                        "with interaction effect"),
+          show.se = FALSE,
+          show.dev = TRUE,
+          p.style = 'stars',
+          show.ci = FALSE)
+```
+
+```{r REML}
+tab_model(m7_div, m7_REML,
+           dv.labels = c("Non-REML", 
+                         "REML"),
+           show.se = FALSE,
+           show.dev = TRUE,
+           p.style = 'stars',
+           show.ci = FALSE)
 ```
