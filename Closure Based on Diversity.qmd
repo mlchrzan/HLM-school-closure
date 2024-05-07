@@ -113,6 +113,10 @@ closure <- closure |>
          location_type = factor(location_type, levels = unique(location_type)))
 ```
 
+```{r}
+summary(closure$dist_st_ratio)
+```
+
 ```{r cleaning-variables}
 #Correct Location Types
 
@@ -135,7 +139,6 @@ closure <- closure |>
 
 
 #Correct Percentages/Ratios
-  #maxval's chosen based on distributions
 closure$st_ratio <- winsorizor(closure$st_ratio, 
                                percentile = c(0.05, 0.95), 
                                na.rm = TRUE)
@@ -166,6 +169,10 @@ closure <- closure |>
 
 
 #Title1 Categories (Can I get a clean yes/no)
+```
+
+```{r}
+summary(closure$dist_st_ratio)
 ```
 
 ```{r creating-variables}
@@ -239,6 +246,21 @@ closure_dist_CA_div
 ```
 
 ```{r select-vars-and-remove-NAs}
+# RQ: Do more diverse districts close more schools?
+## DISTRICT LEVEL
+# location_type
+
+## TIME LEVEL
+# OUTCOME = num_closed
+# theil
+# avg_schl_theil
+
+## CONTROLS (all TIME level)
+# num_schools
+# tot_students
+# st_ratio, proxy for financial status
+# pct_frpl, control for low-income
+
 div_study <- closure_dist_CA_div |> 
   select(num_closed, agency_id, year, 
          theil, 
@@ -249,22 +271,6 @@ div_study <- closure_dist_CA_div |>
          pct_frpl, 
          location_type) |>  
   na.omit()
-
-
-# RQ: Do more diverse districts close more schools?
-## DISTRICT LEVEL
-# location_type
-
-## TIME LEVEL
-# OUTCOME = num_closed
-# theil
-# avg_schl_theil
-
-## CONTROLS
-# num_schools
-# tot_students
-# st_ratio, proxy for financial status
-# pct_frpl, control for low-income
 ```
 
 ```{r alert-data-is-ready}
@@ -273,15 +279,188 @@ beep(sound = 1)
 
 # Check Data
 
-```{r check-level}
+```{r check-sample-representativeness}
+closure_dist |> 
+  group_by(state_abbr) |> 
+  summarize(across(where(is.numeric), ~mean(., na.rm = T))) |> 
+  summarise(across(where(is.numeric), ~sd(., na.rm = T)))
+  ungroup()
+  
+closure_dist |> 
+  select(num_closed, agency_id, state_abbr, year, 
+         theil, 
+         avg_schl_theil, 
+         num_schools, 
+         tot_students, 
+         st_ratio, 
+         pct_frpl, 
+         location_type) |> 
+  group_by(state_abbr) |> 
+  summarize(across(where(is.numeric), ~mean(., na.rm = T))) |> 
+  ungroup() |> 
+  pivot_longer(cols = -state_abbr, 
+               names_to = 'variable', 
+               values_to = 'value') |> 
+  ggplot(aes(x = state_abbr, 
+             y = value)) +
+  geom_col(aes(fill = state_abbr == 'CA')) + 
+  scale_fill_manual(values = c('grey50', 'red4')) + 
+  facet_wrap(~variable, 
+             scales = 'free') +
+  theme_minimal() +
+  labs(title = 'Representativeness Check',
+       subtitle = 'Variable Values by State, California Highlighted',
+       x = 'State') +
+  theme(legend.position = 'none', 
+        axis.text.x = element_blank(), 
+        axis.ticks.x = element_blank()) 
+```
+
+```{r descriptive-table-all}
+# All Years (for Appendix)
 div_study |>
   group_by(year) |>
-  summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE)))
+  summarize(across(where(is.numeric), 
+                   list(min = ~min(.x, na.rm = TRUE),
+                        max = ~max(.x, na.rm = TRUE),
+                        mean = ~mean(.x, na.rm = TRUE),
+                        median = ~median(.x, na.rm = TRUE),
+                        sd = ~sd(.x, na.rm = TRUE)),
+                   .names = "{.col}_{.fn}")) |> 
+  ungroup() |> 
+  pivot_longer(cols = -year,
+               names_to = c("variable", "statistic"),
+               names_pattern = "(.*)_(.*)") |> 
+  arrange(variable, year) |> 
+  pivot_wider(names_from = statistic, 
+              values_from = value) |> 
+  tab_df(title = 'Descriptive Statistics for Study Variables', 
+         footnote = 'Final Sample is 1017 Districts over 18 years', 
+         show.footnote = T)
+
+# Variable Level Summary
+div_study |>
+  group_by(year) |>
+  summarize(across(where(is.numeric), 
+                   list(min = ~min(.x, na.rm = TRUE),
+                        max = ~max(.x, na.rm = TRUE),
+                        mean = ~mean(.x, na.rm = TRUE),
+                        median = ~median(.x, na.rm = TRUE),
+                        sd = ~sd(.x, na.rm = TRUE)),
+                   .names = "{.col}_{.fn}")) |> 
+  ungroup() |> 
+  pivot_longer(cols = -year,
+               names_to = c("variable", "statistic"),
+               names_pattern = "(.*)_(.*)") |> 
+  pivot_wider(names_from = statistic, 
+              values_from = value) |> 
+  group_by(variable) |> 
+  summarize(across(where(is.numeric) & !year, ~mean(., na.rm = TRUE))) |> 
+  ungroup() |> 
+  tab_df(title = 'Descriptive Statistics for Study Variables, Averaged Over All Years', 
+         footnote = 'Final sample is 1017 districts over 18 years. See Appendix for values by year', 
+         show.footnote = T)
+```
+
+```{r descriptive-table-mean-sd}
+# All Years (for Appendix)
+full_join(
+  div_study |>
+    group_by(year) |>
+    summarize(across(where(is.numeric), ~ mean(., na.rm = TRUE))) |> 
+    ungroup() |> 
+    pivot_longer(cols = -year,
+                 names_to = 'variable', 
+                 values_to = 'value'),  
+  div_study |>
+    group_by(year) |>
+    summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year,
+               names_to = 'variable', 
+               values_to = 'value'), 
+  by = join_by(year, variable),
+  suffix = c('_mean', '_sd')
+) |> 
+  rename(mean = value_mean, 
+         std_dev = value_sd) |> 
+  arrange(variable, year) |> 
+  tab_df(title = 'Descriptive Statistics for Study Variables', 
+         footnote = 'Final Sample is 1017 Districts over 18 years', 
+         show.footnote = T)
+
+# Variable Level Summary
+full_join(
+  div_study |>
+    group_by(year) |>
+    summarize(across(where(is.numeric), ~ mean(., na.rm = TRUE))) |> 
+    ungroup() |> 
+    pivot_longer(cols = -year,
+                 names_to = 'variable', 
+                 values_to = 'value'),  
+  div_study |>
+    group_by(year) |>
+    summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE))) |> 
+    ungroup() |> 
+  pivot_longer(cols = -year,
+               names_to = 'variable', 
+               values_to = 'value'), 
+  by = join_by(year, variable),
+  suffix = c('_mean', '_sd')
+) |> 
+  rename(avg_mean = value_mean, 
+         avg_std_dev = value_sd) |> 
+  group_by(variable) |> 
+  summarize(across(where(is.numeric) & !year, ~mean(., na.rm = T))) |> 
+  arrange(variable) |> 
+  tab_df(title = 'Descriptive Statistics for Study Variables, Averaged Over All Years', 
+         footnote = 'Final sample is 1017 districts over 18 years. See Appendix for values by year', 
+         show.footnote = T)
+```
+
+```{r variable-distributions-normality-check, message=FALSE}
+#Without Log Transformations
+div_study |> 
+  pivot_longer(cols = is.numeric, 
+               names_to = 'variable', 
+               values_to = 'value') |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_wrap(~variable, 
+             scales = 'free')
+
+# With Log Transformed
+div_study |> 
+  mutate(num_schools = log(num_schools), 
+         tot_students = log(tot_students), 
+         st_ratio = log(st_ratio),
+         num_closed = log(num_closed)) |> 
+  pivot_longer(cols = is.numeric, 
+               names_to = 'variable', 
+               values_to = 'value') |> 
+  ggplot(aes(x = value)) + 
+  geom_histogram() + 
+  facet_wrap(~variable, 
+             scales = 'free')
+```
+
+```{r check-level}
+div_study |>
+      group_by(year) |>
+      summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE))) |> 
+      ungroup()
+
+#Export
+div_study |>
+      group_by(year) |>
+      summarize(across(where(is.numeric), ~ sd(., na.rm = TRUE))) |> 
+      ungroup() |> 
+  tab_df(title = 'Standard Deviations of All Predictor Variables')
 
 #All numerical variables are time-varying
 ```
 
-```{r all-in-one, message=FALSE, warning=FALSE}
+```{r linearity-check, message=FALSE, warning=FALSE}
 div_study |> 
   group_by(year) |> 
   summarize(num_closed = sum(num_closed), 
@@ -292,10 +471,17 @@ div_study |>
   ggplot(aes(x = num_closed,
              y = value)) +
   geom_point() +
-  geom_smooth(method = "loess", se = F) + # flexible model
-  geom_smooth(method = "lm", se = F, colour = "red") +
+  geom_smooth(method = "loess", 
+              se = F, 
+              color = 'green4') + # flexible model
+  geom_smooth(method = "lm", 
+              se = F, 
+              color = "red3") +
   facet_wrap(~variable, 
-             scales = 'free')
+             scales = 'free') + 
+  theme_minimal() + 
+  labs(title = 'Linearity Check for Predictor Variables',
+       x = "Number of Closed Schools")
 ```
 
 ## Test Linearity
@@ -310,7 +496,7 @@ mdfit <- lm(num_closed ~ as.factor(div_study$year),
 
 anova(mqfit, mlfit) 
 anova(mdfit, mlfit)
-anova(mqfit, mdfit)
+anova(mqfit, mdfit) 
 
 ## QUADRATIC
 ```
@@ -321,7 +507,7 @@ mlfit <- lm(num_closed ~ avg_schl_theil,
 mqfit <- lm(num_closed ~ poly(avg_schl_theil, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 ```
 
 ```{r test-theil}
@@ -330,7 +516,7 @@ mlfit <- lm(num_closed ~ theil,
 mqfit <- lm(num_closed ~ poly(theil, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 
 # QUADRATIC
 ```
@@ -341,7 +527,7 @@ mlfit <- lm(num_closed ~ num_schools,
 mqfit <- lm(num_closed ~ poly(num_schools, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 
 ## QUADRATIC
 ```
@@ -352,7 +538,7 @@ mlfit <- lm(num_closed ~ pct_frpl,
 mqfit <- lm(num_closed ~ poly(pct_frpl, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 
 ## QUADRATIC
 ```
@@ -363,7 +549,7 @@ mlfit <- lm(num_closed ~ st_ratio,
 mqfit <- lm(num_closed ~ poly(st_ratio, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 ```
 
 ```{r test-tot_students}
@@ -372,7 +558,7 @@ mlfit <- lm(num_closed ~ tot_students,
 mqfit <- lm(num_closed ~ poly(tot_students, 2), # quadratic effect
             data = div_study)
 
-anova(mqfit, mlfit) 
+anova(mqfit, mlfit)  
 
 ## QUADRATIC
 ```
@@ -397,7 +583,7 @@ div_study_std <- div_study |>
          across(where(is.numeric) & !year, as.vector), 
          year = year - min(year)) 
 
-div_study_std
+div_study_std 
 ```
 
 ## Step 1: Base Model with Time Predictor
@@ -408,7 +594,7 @@ Hypothesis: Districts do not close the same number of schools at the start
 m1_div <- lm(num_closed ~ I(year * year) ,            
          data = div_study_std) 
 
-summary(m1_div)
+summary(m1_div) 
 ```
 
 ```{r model-random-intercept}
@@ -416,11 +602,11 @@ m2_div <- lmer(num_closed ~ I(year * year) + (1 | agency_id),
            data = div_study_std,     
            REML = F)  
 
-summary(m2_div)
+summary(m2_div) 
 ```
 
 ```{r compare-m1-m2}
-anova(m2_div, m1_div)
+anova(m2_div, m1_div) 
 ```
 
 ```{r icc}
@@ -470,11 +656,11 @@ m3_div <- lmer(num_closed ~
            data = div_study_std,
            REML = F)
 
-summary(m3_div)
+summary(m3_div) 
 ```
 
 ```{r compare-m2-m3}
-anova(m3_div, m2_div)
+anova(m3_div, m2_div) 
 ```
 
 ## *No time invariant predictors, so we skip Step 3*
@@ -497,11 +683,11 @@ m4_div <- lmer(num_closed ~
            data = div_study_std,
            REML = F)
 
-summary(m4_div)
+summary(m4_div) 
 ```
 
 ```{r compare-m3-m4}
-anova(m4_div, m3_div)
+anova(m4_div, m3_div) 
 ```
 
 ## Step 5: A model with random slopes (NO covariance with random intercepts)
@@ -523,11 +709,11 @@ m5_div <- lmer(num_closed ~
            data = div_study_std,
            REML = F)
 
-summary(m5_div)
+summary(m5_div) 
 ```
 
 ```{r compare-m4-m5}
-anova(m5_div, m4_div)
+anova(m5_div, m4_div) 
 ```
 
 ## A model with random slopes (and covariance with random intercepts)
@@ -544,7 +730,7 @@ m6_div <- lmer(num_closed ~
            + location_type
            + (1 + num_schools | agency_id),
            data = div_study_std,
-           REML = F)
+           REML = F) 
 
 # summary(m6_div)
 
@@ -571,11 +757,11 @@ m7_div <- lmer(num_closed ~
            data = div_study_std,
            REML = F)
 
-summary(m7_div)
+summary(m7_div) 
 ```
 
 ```{r compare-m6-m7}
-anova(m7_div, m5_div)
+anova(m7_div, m5_div) 
 ```
 
 ## Check with REML (restricted maximum likelihood)
@@ -604,7 +790,7 @@ tab_model(m7_div, m7_REML,
            show.se = FALSE,
            show.dev = TRUE,
            p.style = 'stars',
-           show.ci = FALSE)
+           show.ci = FALSE) 
 
 # with and without REML produce similar results 
 ```
@@ -613,7 +799,7 @@ tab_model(m7_div, m7_REML,
 
 ```{r qqplot}
 r_std <- scale(resid(m6_div))
-qqnorm(r_std, pch = 1)
+qqnorm(r_std, pch = 1) 
 qqline(r_std, col = "#8C1515")
 ```
 
@@ -628,7 +814,7 @@ ggplot(div_study_std,
   geom_point() +
   xlab("Predicted number closed") +
   ylab("Standardized residuals") + 
-  geom_hline(yintercept = 0, color = "#8C1515")
+  geom_hline(yintercept = 0, color = "#8C1515") 
 ```
 
 Residual plots shows the residuals are not normally distributed across the predicted values of the number of school's closed.
@@ -662,7 +848,7 @@ ggplot(randomeffects, aes(x = num_closed_hat_ml,
   xlab("Predicted number closed") +
   ylab("Slope") + 
   geom_hline(yintercept = 0, 
-             color = "#8C1515")
+             color = "#8C1515") 
 ```
 
 Many outliers, but even for the tighter group in the center, for higher values of num_closed there are more positive values of residuals.
@@ -696,7 +882,7 @@ for (i in 1:length(u_condvar$agency_id)) {
 
 
 myplots[[1]]
-myplots[[2]] 
+myplots[[2]]  
 ```
 
 Here the districts are sorted in rank order of their residuals around the average intercept. When error bars do not overlap, they will have significantly different residuals (p \< 0.05). It shows us how different the intercepts are across districts.
